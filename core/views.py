@@ -8,4 +8,4 @@ def test(request):
     
     
 def home(request):
-    return HttpResponse("Travel Optimizer Home")
+    return render(request, 'core/home.html')
