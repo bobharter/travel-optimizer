@@ -35,15 +35,22 @@
             </div>
         </form>
 
+        {% if error %}
+        <div class="alert alert-danger mt-4">{{ error }}</div>
+        {% endif %}
+
         {% if destinations %}
         <div class="mt-4">
-            <h2 class="h5">Destinations recognized:</h2>
-            <ul class="list-group">
+            <h2 class="h5">Here's what we understood — does this look right?</h2>
+            <ul class="list-group mb-3">
                 {% for d in destinations %}
                 <li class="list-group-item"><i class="bi bi-geo-alt me-2 text-primary"></i>{{ d }}</li>
                 {% endfor %}
             </ul>
-            <p class="text-muted mt-3"><em>Hotel results will appear here once the search engine is connected.</em></p>
+            <p class="text-muted small">If any destination is wrong, update your description above and search again.</p>
+            <button class="btn btn-success btn-lg w-100" disabled>
+                <i class="bi bi-check-circle me-2"></i>Yes, find me the best hotel location
+            </button>
         </div>
         {% endif %}
 

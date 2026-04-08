@@ -14,8 +14,8 @@ class TripSearchForm(forms.Form):
         label='Destinations',
         widget=forms.Textarea(attrs={
             'class': 'form-control',
-            'placeholder': 'e.g. Eiffel Tower, Louvre Museum, Notre-Dame Cathedral',
+            'placeholder': 'e.g. I want to see the Pantheon and the Coliseum and grab some good pasta',
             'rows': 3,
         }),
-        help_text='Enter places separated by commas.'
+        help_text='Describe your trip in your own words — mention specific places, activities, or experiences.'
     )
