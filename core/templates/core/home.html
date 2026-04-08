@@ -11,6 +11,7 @@
             that minimizes your total travel distance.
         </p>
 
+        {% if not named and not recommended %}
         <form method="post">
             {% csrf_token %}
             <div class="mb-3">
@@ -30,7 +31,7 @@
             </div>
             <div class="d-grid">
                 <button type="submit" class="btn btn-primary btn-lg">
-                    <i class="bi bi-search me-2"></i>Find Hotels
+                    <i class="bi bi-search me-2"></i>Start Trip Analysis
                 </button>
             </div>
         </form>
@@ -39,21 +40,70 @@
         <div class="alert alert-danger mt-4">{{ error }}</div>
         {% endif %}
 
-        {% if destinations %}
-        <div class="mt-4">
-            <h2 class="h5">Here's what we understood — does this look right?</h2>
-            <ul class="list-group mb-3">
-                {% for d in destinations %}
-                <li class="list-group-item"><i class="bi bi-geo-alt me-2 text-primary"></i>{{ d }}</li>
+        {% else %}
+
+        <div class="mt-2">
+            <h2 class="h5 mb-3">Here's what we understood — does this look right?</h2>
+
+            <div class="d-flex gap-2 mb-3">
+                <button class="btn btn-outline-secondary btn-sm" onclick="selectAll()">Select All</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="deselectAll()">Deselect All</button>
+            </div>
+
+            {% if named %}
+            <h3 class="h6 text-muted mb-2">Your Named Destinations</h3>
+            <ul class="list-group mb-3" id="named-list">
+                {% for d in named %}
+                <li class="list-group-item d-flex align-items-center">
+                    <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
+                    {{ d }}
+                </li>
                 {% endfor %}
             </ul>
-            <p class="text-muted small">If any destination is wrong, update your description above and search again.</p>
-            <button class="btn btn-success btn-lg w-100" disabled>
-                <i class="bi bi-check-circle me-2"></i>Yes, find me the best hotel location
+            {% endif %}
+
+            {% if recommended %}
+            <h3 class="h6 text-muted mt-3 mb-2">AI-Recommended Destinations</h3>
+            <ul class="list-group mb-3" id="recommended-list">
+                {% for d in recommended %}
+                <li class="list-group-item d-flex align-items-center">
+                    <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
+                    {{ d }}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+
+            <p class="text-muted small">If anything looks wrong, <a href="/">start over</a>.</p>
+            <button class="btn btn-success btn-lg w-100" id="confirm-btn" onclick="confirmDestinations()">
+                <i class="bi bi-check-circle me-2"></i>Confirm. Find my hotel location!
             </button>
         </div>
+
         {% endif %}
 
     </div>
 </div>
+
+<script>
+    function updateConfirmButton() {
+        const anyChecked = document.querySelectorAll('.destination-checkbox:checked').length > 0;
+        document.getElementById('confirm-btn').disabled = !anyChecked;
+    }
+
+    function selectAll() {
+        document.querySelectorAll('.destination-checkbox').forEach(cb => cb.checked = true);
+        updateConfirmButton();
+    }
+
+    function deselectAll() {
+        document.querySelectorAll('.destination-checkbox').forEach(cb => cb.checked = false);
+        updateConfirmButton();
+    }
+
+    function confirmDestinations() {
+        // Placeholder — will submit selected destinations to hotel search
+        alert('Hotel search coming soon!');
+    }
+</script>
 {% endblock %}

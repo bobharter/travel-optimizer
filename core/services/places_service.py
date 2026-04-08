@@ -3,13 +3,12 @@ import os
 import anthropic
 
 
-def extract_and_normalize_destinations(city: str, free_text: str) -> list[str]:
+def extract_and_normalize_destinations(city: str, free_text: str) -> dict:
     """
     Given a city and a free-text trip description, use Claude to:
-    - Extract named destinations and fix typos
-    - Resolve category intents (e.g. "good pasta") to a specific well-known place
-      near one of the named destinations
-    Returns a list of concrete, correctly-spelled place names.
+    - Extract named destinations and fix typos  → "named"
+    - Resolve vague intents to specific places  → "recommended"
+    Returns {"named": [...], "recommended": [...]}
     """
     print(f"DEBUG calling Claude for city={city!r}")
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -19,13 +18,15 @@ def extract_and_normalize_destinations(city: str, free_text: str) -> list[str]:
 The user has described their trip as follows:
 "{free_text}"
 
-Your job is to extract a list of specific destinations from this description. Follow these rules:
-1. Extract all named places and fix any typos or misspellings (e.g. "Coliseum" → "Colosseum", "Vatcain" → "Vatican").
-2. For any category or experience the user mentions (e.g. "good pasta", "a nice café", "local market"), choose one specific, well-known, highly-regarded place in {city} that fits that description AND is in the same neighborhood as one of the named destinations.
-3. Return ONLY a JSON array of strings — the final list of concrete place names. No explanation, no extra text.
+Your job is to extract destinations from this description and categorize them into two groups:
 
-Example output format:
-["Pantheon", "Colosseum", "Vatican Museums", "Trattoria Da Enzo al 29"]"""
+1. "named": Places the user explicitly named (fix any typos or misspellings, e.g. "Coliseum" → "Colosseum"). Choose a specific well-known instance in {city} if needed.
+2. "recommended": Places you are recommending based on vague or category descriptions (e.g. "biggest museum", "good pasta place", "a nice park"). For each, choose one specific, well-known, highly-regarded place in {city} that fits the description AND is near one of the named destinations if possible.
+
+Return ONLY a JSON object in this exact format — no explanation, no extra text:
+{{"named": ["Place One", "Place Two"], "recommended": ["Place Three"]}}
+
+If there are no vague descriptions, return an empty array for "recommended"."""
 
     message = client.messages.create(
         model="claude-sonnet-4-6",

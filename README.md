@@ -48,7 +48,8 @@ User types something like:
   My suggestion: start with reputation ("well-known restaurant in Rome for      
   pasta"), make it work end-to-end, then swap in location-aware selection later.
 
-Example input: I want to see the Vaticna, the Colissuem, and the Spansh Stps, and grab some excellent ravioli.            
+Example input: I want to see the Vaticna, the Colissuem, and the Spansh Stps, and grab some excellent ravioli.          
+I want to visit the Coliseum and the three highest-rated museums in town and the best art galleries and get some good pasta.  
 
    First cut at a prompt:   So the full prompt contract becomes:                                          
   1. Given: a city + free-text trip description
