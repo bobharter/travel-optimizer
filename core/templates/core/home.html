@@ -67,7 +67,10 @@
                 {% for d in named %}
                 <li class="list-group-item d-flex align-items-center">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
-                    <span>{{ d.name }} <span class="text-muted small">({{ d.category }})</span></span>
+                    <span>
+                        {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}
+                        <span class="text-muted small">({{ d.category }})</span>
+                    </span>
                 </li>
                 {% endfor %}
             </ul>
@@ -79,7 +82,10 @@
                 {% for d in recommended %}
                 <li class="list-group-item d-flex align-items-center">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
-                    <span>{{ d.name }} <span class="text-muted small">({{ d.category }})</span></span>
+                    <span>
+                        {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}
+                        <span class="text-muted small">({{ d.category }})</span>
+                    </span>
                 </li>
                 {% endfor %}
             </ul>
