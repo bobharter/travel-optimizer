@@ -50,6 +50,7 @@ User types something like:
 
 Example input: I want to see the Vaticna, the Colissuem, and the Spansh Stps, and grab some excellent ravioli.          
 I want to visit the Coliseum and the three highest-rated museums in town and the best art galleries and get some good pasta.  
+I want to visit the best art galleries, eat the best dessert crepe, and for sur visite the Loovre and the Arc of Triumph. Oh, and the highest-rated museums.
 
    First cut at a prompt:   So the full prompt contract becomes:                                          
   1. Given: a city + free-text trip description

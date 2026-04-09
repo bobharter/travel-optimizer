@@ -12,6 +12,7 @@ def home(request):
     form = TripSearchForm()
     named = None
     recommended = None
+    original_description = None
     error = None
 
     if request.method == 'POST':
@@ -21,8 +22,9 @@ def home(request):
             free_text = form.cleaned_data['destinations']
             try:
                 result = extract_and_normalize_destinations(city, free_text)
-                named = result.get("named", [])
-                recommended = result.get("recommended", [])
+                named = result.get("named", [])        # list of {"name": ..., "category": ...}
+                recommended = result.get("recommended", [])  # same
+                original_description = free_text
             except Exception as e:
                 error = f"Could not process your destinations: {e}"
 
@@ -30,5 +32,6 @@ def home(request):
         'form': form,
         'named': named,
         'recommended': recommended,
+        'original_description': original_description,
         'error': error,
     })

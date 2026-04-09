@@ -12,7 +12,7 @@
         </p>
 
         {% if not named and not recommended %}
-        <form method="post">
+        <form method="post" id="trip-form">
             {% csrf_token %}
             <div class="mb-3">
                 <label for="{{ form.city.id_for_label }}" class="form-label fw-semibold">City</label>
@@ -30,7 +30,7 @@
                 {% endif %}
             </div>
             <div class="d-grid">
-                <button type="submit" class="btn btn-primary btn-lg">
+                <button type="submit" class="btn btn-primary btn-lg" id="submit-btn">
                     <i class="bi bi-search me-2"></i>Start Trip Analysis
                 </button>
             </div>
@@ -45,6 +45,17 @@
         <div class="mt-2">
             <h2 class="h5 mb-3">Here's what we understood — does this look right?</h2>
 
+            {% if original_description %}
+            <div class="mb-3">
+                <a class="text-muted small" data-bs-toggle="collapse" href="#original-description" role="button">
+                    Your original description
+                </a>
+                <div class="collapse mt-2" id="original-description">
+                    <div class="card card-body text-muted small fst-italic">{{ original_description }}</div>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="d-flex gap-2 mb-3">
                 <button class="btn btn-outline-secondary btn-sm" onclick="selectAll()">Select All</button>
                 <button class="btn btn-outline-secondary btn-sm" onclick="deselectAll()">Deselect All</button>
@@ -56,7 +67,7 @@
                 {% for d in named %}
                 <li class="list-group-item d-flex align-items-center">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
-                    {{ d }}
+                    <span>{{ d.name }} <span class="text-muted small">({{ d.category }})</span></span>
                 </li>
                 {% endfor %}
             </ul>
@@ -68,7 +79,7 @@
                 {% for d in recommended %}
                 <li class="list-group-item d-flex align-items-center">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
-                    {{ d }}
+                    <span>{{ d.name }} <span class="text-muted small">({{ d.category }})</span></span>
                 </li>
                 {% endfor %}
             </ul>
@@ -86,6 +97,15 @@
 </div>
 
 <script>
+    const form = document.getElementById('trip-form');
+    if (form) {
+        form.addEventListener('submit', function () {
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Analyzing Trip...';
+        });
+    }
+
     function updateConfirmButton() {
         const anyChecked = document.querySelectorAll('.destination-checkbox:checked').length > 0;
         document.getElementById('confirm-btn').disabled = !anyChecked;

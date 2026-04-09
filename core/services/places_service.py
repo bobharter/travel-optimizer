@@ -8,6 +8,7 @@ def extract_and_normalize_destinations(city: str, free_text: str) -> dict:
     Given a city and a free-text trip description, use Claude to:
     - Extract named destinations and fix typos  → "named"
     - Resolve vague intents to specific places  → "recommended"
+    Each destination has a "name" and a "category".
     Returns {"named": [...], "recommended": [...]}
     """
     print(f"DEBUG calling Claude for city={city!r}")
@@ -15,22 +16,25 @@ def extract_and_normalize_destinations(city: str, free_text: str) -> dict:
 
     prompt = f"""You are a travel assistant helping a user plan a trip to {city}.
 
-The user has described their trip as follows:
+The user described their trip as:
 "{free_text}"
 
-Your job is to extract destinations from this description and categorize them into two groups:
+Extract all destinations and categorize them. For each destination provide:
+- "name": the correct, properly spelled place name
+- "category": a short, specific label like "Restaurant", "Art Museum", "Ancient Monument", "Park", "Cathedral", etc.
 
-1. "named": Places the user explicitly named (fix any typos or misspellings, e.g. "Coliseum" → "Colosseum"). Choose a specific well-known instance in {city} if needed.
-2. "recommended": Places you are recommending based on vague or category descriptions (e.g. "biggest museum", "good pasta place", "a nice park"). For each, choose one specific, well-known, highly-regarded place in {city} that fits the description AND is near one of the named destinations if possible.
+Split them into two groups:
+- "named": places the user explicitly mentioned (fix any typos or misspellings)
+- "recommended": places you are recommending based on vague or category descriptions (e.g. "best pasta", "biggest museum") — choose one specific, well-known, highly-regarded place in {city} that fits, near one of the named destinations if possible
 
-Return ONLY a JSON object in this exact format — no explanation, no extra text:
-{{"named": ["Place One", "Place Two"], "recommended": ["Place Three"]}}
+Return ONLY this JSON, no explanation, no code fences:
+{{"named": [{{"name": "Colosseum", "category": "Ancient Amphitheater"}}], "recommended": [{{"name": "Trattoria Da Enzo al 29", "category": "Restaurant"}}]}}
 
 If there are no vague descriptions, return an empty array for "recommended"."""
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=256,
+        max_tokens=512,
         messages=[{"role": "user", "content": prompt}],
     )
 

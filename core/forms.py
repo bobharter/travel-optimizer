@@ -17,5 +17,5 @@ class TripSearchForm(forms.Form):
             'placeholder': 'e.g. I want to visit the Coliseum and the three highest-rated museums and the best art galleries and get some excellent linguini',
             'rows': 3,
         }),
-        help_text='Describe your trip in your own words — mention specific places, activities, or experiences. You can be vague, and don\'t worry about spelling.'
+        help_text='Describe your interests in your own words — you can mention specific places, activities, or experiences. Or you can be vague, and don\'t worry about spelling.'
     )
