@@ -68,8 +68,22 @@
                 <li class="list-group-item d-flex align-items-center">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
                     <span>
-                        {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}
-                        <span class="text-muted small">({{ d.category }})</span>
+                        {% if d.alternatives %}
+                            {# Ambiguous input: show a dropdown so the user can pick the place they meant. #}
+                            {# Claude's best guess is the first option (matches d.name). #}
+                            <select class="form-select form-select-sm d-inline-block w-auto me-1">
+                                {% for alt in d.alternatives %}
+                                    {# First alternative matches d.name — pre-selected as Claude's best guess #}
+                                    <option {% if forloop.first %}selected{% endif %}>{{ alt }}</option>
+                                {% endfor %}
+                            </select>
+                            <span class="text-muted small">({{ d.category }})</span>
+                            <span class="badge bg-warning text-dark ms-1" title="We weren't sure which place you meant — please confirm">?</span>
+                        {% else %}
+                            {# Unambiguous: just show the name, linked if a URL is available #}
+                            {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}
+                            <span class="text-muted small">({{ d.category }})</span>
+                        {% endif %}
                     </span>
                 </li>
                 {% endfor %}
@@ -108,7 +122,7 @@
         form.addEventListener('submit', function () {
             const btn = document.getElementById('submit-btn');
             btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Analyzing Trip...';
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Analyzing Your Trip Description...';
         });
     }
 
