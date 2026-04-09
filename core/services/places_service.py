@@ -25,12 +25,11 @@ def extract_and_normalize_destinations(city: str, free_text: str) -> dict:
             "category"     (str)        — short descriptive label, e.g. "Restaurant", "Art Museum"
             "url"          (str|None)   — official website URL if Claude is confident one exists,
                                           otherwise null
-            "alternatives" (list[str])  — other plausible place names if the user's input was
-                                          ambiguous (e.g. "Milenium" → ["Millennium Eye",
-                                          "Millennium Bridge", "Millennium Dome"]); empty list
-                                          when there is no ambiguity. Includes the chosen "name"
-                                          as the first entry so the full set of choices is
-                                          self-contained.
+            "alternatives" (list[dict])  — if the user's input was ambiguous and could match
+                                           multiple real places, a list of candidate objects
+                                           each with "name", "category", and "url" fields
+                                           (url may be null). The chosen "name" entry appears
+                                           first. Empty list when there is no ambiguity.
     """
     print(f"DEBUG calling Claude for city={city!r}")
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
@@ -47,20 +46,20 @@ Extract all destinations and categorize them. For each destination provide:
 - "name": the correct, properly spelled place name (your best guess if ambiguous)
 - "category": a short, specific label like "Restaurant", "Art Museum", "Ancient Monument", "Park", "Cathedral", etc.
 - "url": the official website URL for the destination if you are confident it exists and is current (e.g. "https://colosseo.it"), or null if you are not sure
-- "alternatives": if the user's input was ambiguous and could reasonably match multiple distinct real places, list all the plausible candidate names as plain strings — e.g. ["Millennium Eye", "Millennium Bridge", "Millennium Dome"]. Include "name" as the first string. Use an empty array [] when there is no meaningful ambiguity. This must be a flat list of strings only, NOT a list of objects.
+- "alternatives": if the user's input was ambiguous and could reasonably match multiple distinct real places, list all plausible candidates as objects with "name", "category", and "url" fields (url may be null) — include the chosen "name" entry first. Use an empty array [] when there is no meaningful ambiguity.
 
 Split them into two groups:
 - "named": places the user explicitly mentioned (fix any typos or misspellings)
 - "recommended": places you are recommending based on vague or category descriptions (e.g. "best pasta", "biggest museum") — for each distinct category or experience the user mentions, choose one specific, well-known, highly-regarded place in {city} that fits, near one of the named destinations if possible. Treat each vague request separately — do not consolidate similar categories. For example, "best art galleries" and "highest-rated museums" must each produce their own distinct recommendation.
 
 Return ONLY this JSON, no explanation, no code fences:
-{{"named": [{{"name": "Millennium Eye", "category": "Observation Wheel", "url": "https://www.londoneye.com", "alternatives": ["Millennium Eye", "Millennium Bridge", "Millennium Dome"]}}], "recommended": [{{"name": "Trattoria Da Enzo al 29", "category": "Restaurant", "url": null, "alternatives": []}}]}}
+{{"named": [{{"name": "Millennium Eye", "category": "Observation Wheel", "url": "https://www.londoneye.com", "alternatives": [{{"name": "Millennium Eye", "category": "Observation Wheel", "url": "https://www.londoneye.com"}}, {{"name": "Millennium Bridge", "category": "Landmark Bridge", "url": "https://www.tate.org.uk/visit/tate-modern/millennium-bridge"}}, {{"name": "Millennium Dome", "category": "Entertainment Venue", "url": "https://www.theo2.co.uk"}}]}}], "recommended": [{{"name": "Trattoria Da Enzo al 29", "category": "Restaurant", "url": null, "alternatives": []}}]}}
 
 If there are no vague descriptions, return an empty array for "recommended"."""
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=512,
+        max_tokens=2048,  # Increased from 512 — alternatives arrays with full objects can be lengthy
         messages=[{"role": "user", "content": prompt}],
     )
 

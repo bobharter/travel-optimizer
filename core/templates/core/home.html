@@ -70,15 +70,26 @@
                     <span>
                         {% if d.alternatives %}
                             {# Ambiguous input: show a dropdown so the user can pick the place they meant. #}
+                            {# Each option carries a data-url attribute so the link icon can update on change. #}
                             {# Claude's best guess is the first option (matches d.name). #}
-                            <select class="form-select form-select-sm d-inline-block w-auto me-1">
+                            <select class="form-select form-select-sm d-inline-block w-auto me-1" onchange="updateAltLink(this)">
                                 {% for alt in d.alternatives %}
-                                    {# First alternative matches d.name — pre-selected as Claude's best guess #}
-                                    <option {% if forloop.first %}selected{% endif %}>{{ alt }}</option>
+                                    {# Show name + category in the option label so the user can tell alternatives apart #}
+                                    <option data-url="{{ alt.url|default:'' }}" {% if forloop.first %}selected{% endif %}>{{ alt.name }} ({{ alt.category }})</option>
                                 {% endfor %}
                             </select>
-                            <span class="text-muted small">({{ d.category }})</span>
-                            <span class="badge bg-warning text-dark ms-1" title="We weren't sure which place you meant — please confirm">?</span>
+                            {# Link icon — href starts at the first alternative's URL, updates via JS when selection changes #}
+                            {# Hidden entirely if the first alternative has no URL #}
+                            {% if d.alternatives.0.url %}
+                                <a class="ms-1 alt-url-link" href="{{ d.alternatives.0.url }}" target="_blank" rel="noopener" title="Visit official website">
+                                    <i class="bi bi-box-arrow-up-right"></i>
+                                </a>
+                            {% else %}
+                                <a class="ms-1 alt-url-link d-none" href="#" target="_blank" rel="noopener" title="Visit official website">
+                                    <i class="bi bi-box-arrow-up-right"></i>
+                                </a>
+                            {% endif %}
+                            <span class="badge bg-warning text-dark ms-1" title="We found multiple places matching what you typed — please select the one you meant">?</span>
                         {% else %}
                             {# Unambiguous: just show the name, linked if a URL is available #}
                             {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}
@@ -139,6 +150,23 @@
     function deselectAll() {
         document.querySelectorAll('.destination-checkbox').forEach(cb => cb.checked = false);
         updateConfirmButton();
+    }
+
+    // Called when the user changes the selection in an alternatives dropdown.
+    // Updates the adjacent link icon to point to the newly selected alternative's URL,
+    // or hides the link if the selected alternative has no URL.
+    function updateAltLink(select) {
+        const selectedOption = select.options[select.selectedIndex];
+        const url = selectedOption.getAttribute('data-url');
+        // The link icon is always the next sibling <a> after the <select>
+        const link = select.nextElementSibling;
+        if (url) {
+            link.href = url;
+            link.classList.remove('d-none');
+        } else {
+            link.href = '#';
+            link.classList.add('d-none');
+        }
     }
 
     function confirmDestinations() {
