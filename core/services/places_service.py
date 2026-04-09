@@ -57,8 +57,11 @@ Return ONLY this JSON, no explanation, no code fences:
 
 If there are no vague descriptions, return an empty array for "recommended"."""
 
+    # Model is configured via ANTHROPIC_MODEL env var — swap in .env to change without touching code
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    print(f"DEBUG using model: {model}")
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=model,
         max_tokens=2048,  # Increased from 512 — alternatives arrays with full objects can be lengthy
         messages=[{"role": "user", "content": prompt}],
     )
