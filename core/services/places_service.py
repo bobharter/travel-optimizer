@@ -1,11 +1,34 @@
 import json
 import os
-import anthropic
+
+# OpenRouter exposes an OpenAI-compatible API, so we use the openai SDK
+# pointed at OpenRouter's base URL instead of the Anthropic SDK.
+from openai import OpenAI
+
+
+# OpenRouter's API endpoint — drop-in replacement for OpenAI's base URL
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def _get_model_list() -> list[str]:
+    """
+    Read the comma-separated LLM_MODEL_LIST env var and return it as a list.
+
+    Returns:
+        list[str] — model identifiers in priority order, e.g.:
+                    ["google/gemini-2.5-flash", "openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"]
+                    Falls back to a sensible default if the env var is missing.
+    """
+    raw = os.environ.get("LLM_MODEL_LIST", "google/gemini-2.5-flash,openai/gpt-4o-mini")
+    # Strip whitespace around commas so spacing in the env var doesn't matter
+    return [m.strip() for m in raw.split(",") if m.strip()]
 
 
 def extract_and_normalize_destinations(city: str, free_text: str) -> dict:
     """
-    Use Claude to extract and normalize travel destinations from a free-text trip description.
+    Use an LLM (via OpenRouter) to extract and normalize travel destinations
+    from a free-text trip description. Tries each model in LLM_MODEL_LIST in
+    order, falling back to the next if one fails.
 
     Inputs:
         city      (str) — the city the user is traveling to (e.g. "Rome, Italy")
@@ -16,27 +39,35 @@ def extract_and_normalize_destinations(city: str, free_text: str) -> dict:
         dict with two keys:
             "named"       — list of destinations the user explicitly mentioned,
                             with typos corrected
-            "recommended" — list of specific places Claude recommends for any vague
+            "recommended" — list of specific places the LLM recommends for any vague
                             requests (e.g. "best pasta", "biggest museum")
 
         Each destination in both lists is a dict with:
-            "name"         (str)        — correct, properly spelled place name (Claude's best guess
+            "name"         (str)        — correct, properly spelled place name (best guess
                                           when the input is ambiguous)
             "category"     (str)        — short descriptive label, e.g. "Restaurant", "Art Museum"
-            "url"          (str|None)   — official website URL if Claude is confident one exists,
-                                          otherwise null
-            "alternatives" (list[dict])  — if the user's input was ambiguous and could match
-                                           multiple real places, a list of candidate objects
-                                           each with "name", "category", and "url" fields
-                                           (url may be null). The chosen "name" entry appears
-                                           first. Empty list when there is no ambiguity.
-    """
-    print(f"DEBUG calling Claude for city={city!r}")
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+            "url"          (str|None)   — official website URL if the model is confident one
+                                          exists, otherwise null
+            "alternatives" (list[dict]) — if the user's input was ambiguous and could match
+                                          multiple real places, a list of candidate objects
+                                          each with "name", "category", and "url" fields
+                                          (url may be null). The chosen "name" entry appears
+                                          first. Empty list when there is no ambiguity.
 
-    # Build the prompt. We ask Claude to split results into "named" vs "recommended"
-    # so the UI can present them differently (confirmed vs suggested).
-    # The url field is optional — Claude should return null rather than guess.
+    Raises:
+        RuntimeError — if all models in the fallback list fail
+    """
+    # Build the OpenRouter client — same interface as the OpenAI SDK
+    client = OpenAI(
+        api_key=os.environ["OPENROUTER_API_KEY"],
+        base_url=OPENROUTER_BASE_URL,
+    )
+
+    # Build the prompt once — it's the same regardless of which model handles it.
+    # We ask the model to split results into "named" vs "recommended" so the UI
+    # can present them differently (confirmed vs suggested).
+    # The url field is optional — the model should return null rather than guess.
+    # The alternatives field lets the user disambiguate when the input was vague.
     prompt = f"""You are a travel assistant helping a user plan a trip to {city}.
 
 The user described their trip as:
@@ -57,21 +88,40 @@ Return ONLY this JSON, no explanation, no code fences:
 
 If there are no vague descriptions, return an empty array for "recommended"."""
 
-    # Model is configured via ANTHROPIC_MODEL env var — swap in .env to change without touching code
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-    print(f"DEBUG using model: {model}")
-    message = client.messages.create(
-        model=model,
-        max_tokens=2048,  # Increased from 512 — alternatives arrays with full objects can be lengthy
-        messages=[{"role": "user", "content": prompt}],
-    )
+    # Try each model in the fallback list in order.
+    # If a model fails (API error, bad JSON, etc.), log it and try the next one.
+    models = _get_model_list()
+    last_error = None
 
-    raw = message.content[0].text.strip()
-    print(f"DEBUG Claude raw response: {repr(raw)}")
-    # Strip markdown code fences if Claude wraps the JSON despite being told not to
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
-    return json.loads(raw)
+    for model in models:
+        print(f"DEBUG trying model: {model}")
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                max_tokens=2048,  # Generous limit — alternatives arrays with full objects can be lengthy
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            raw = response.choices[0].message.content.strip()
+            print(f"DEBUG raw response from {model}: {repr(raw)}")
+
+            # Strip markdown code fences if the model wraps the JSON despite being told not to
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.strip()
+
+            # If JSON parses successfully, we're done — return immediately
+            result = json.loads(raw)
+            print(f"DEBUG success with model: {model}")
+            return result
+
+        except Exception as e:
+            # Log the failure and try the next model in the list
+            print(f"DEBUG model {model} failed: {e}")
+            last_error = e
+            continue
+
+    # All models failed — surface the last error so the view can show a message to the user
+    raise RuntimeError(f"All models in LLM_MODEL_LIST failed. Last error: {last_error}")
