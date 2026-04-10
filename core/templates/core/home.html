@@ -65,17 +65,19 @@
             <h3 class="h6 text-muted mb-2">Your Named Destinations</h3>
             <ul class="list-group mb-3" id="named-list">
                 {% for d in named %}
-                <li class="list-group-item d-flex align-items-center">
+                {# data-name lets the confirm JS extract the destination name without parsing display text #}
+                <li class="list-group-item d-flex align-items-center" data-name="{{ d.name }}">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
                     <span>
                         {% if d.alternatives|length > 1 %}
                             {# Ambiguous input: show a dropdown so the user can pick the place they meant. #}
-                            {# Each option carries a data-url attribute so the link icon can update on change. #}
+                            {# Each option carries data-name and data-url for JS use. #}
                             {# Claude's best guess is the first option (matches d.name). #}
                             <select class="form-select form-select-sm d-inline-block w-auto me-1" onchange="updateAltLink(this)">
                                 {% for alt in d.alternatives %}
-                                    {# Show name + category in the option label so the user can tell alternatives apart #}
-                                    <option data-url="{{ alt.url|default:'' }}" {% if forloop.first %}selected{% endif %}>{{ alt.name }} ({{ alt.category }})</option>
+                                    {# data-name holds just the place name for form submission #}
+                                    {# data-url holds the official website URL for the link icon #}
+                                    <option data-name="{{ alt.name }}" data-url="{{ alt.url|default:'' }}" {% if forloop.first %}selected{% endif %}>{{ alt.name }} ({{ alt.category }})</option>
                                 {% endfor %}
                             </select>
                             {# Link icon — href starts at the first alternative's URL, updates via JS when selection changes #}
@@ -105,7 +107,8 @@
             <h3 class="h6 text-muted mt-3 mb-2">AI-Recommended Destinations</h3>
             <ul class="list-group mb-3" id="recommended-list">
                 {% for d in recommended %}
-                <li class="list-group-item d-flex align-items-center">
+                {# data-name lets the confirm JS extract the destination name #}
+                <li class="list-group-item d-flex align-items-center" data-name="{{ d.name }}">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
                     <span>
                         {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}
@@ -115,6 +118,14 @@
                 {% endfor %}
             </ul>
             {% endif %}
+
+            {# Hidden form that confirmDestinations() populates and submits to the results view #}
+            {# City and destination names are injected by JS before submission #}
+            <form id="confirm-form" method="post" action="{% url 'results' %}">
+                {% csrf_token %}
+                <input type="hidden" name="city" value="{{ city }}">
+                {# Destination inputs are added dynamically by confirmDestinations() #}
+            </form>
 
             <p class="text-muted small">If anything looks wrong, <a href="/">start over</a>.</p>
             <button class="btn btn-success btn-lg w-100" id="confirm-btn" onclick="confirmDestinations()">
@@ -128,6 +139,7 @@
 </div>
 
 <script>
+    // Attach spinner to the trip analysis form submit
     const form = document.getElementById('trip-form');
     if (form) {
         form.addEventListener('submit', function () {
@@ -137,6 +149,7 @@
         });
     }
 
+    // Enable/disable the confirm button based on whether any destinations are checked
     function updateConfirmButton() {
         const anyChecked = document.querySelectorAll('.destination-checkbox:checked').length > 0;
         document.getElementById('confirm-btn').disabled = !anyChecked;
@@ -169,9 +182,44 @@
         }
     }
 
+    // Collect all checked destination names and submit them to the results view.
+    // For ambiguous items (dropdowns), uses the selected option's data-name attribute.
+    // For unambiguous items, uses the parent <li>'s data-name attribute.
     function confirmDestinations() {
-        // Placeholder — will submit selected destinations to hotel search
-        alert('Hotel search coming soon!');
+        const confirmForm = document.getElementById('confirm-form');
+
+        // Remove any destination inputs from a previous attempt
+        confirmForm.querySelectorAll('input[name="destination"]').forEach(el => el.remove());
+
+        // Add one hidden input per checked destination
+        document.querySelectorAll('.destination-checkbox:checked').forEach(cb => {
+            const li = cb.closest('li');
+            const select = li.querySelector('select');
+            let name;
+
+            if (select) {
+                // Ambiguous destination — use the selected option's data-name (just the place name)
+                name = select.options[select.selectedIndex].getAttribute('data-name');
+            } else {
+                // Unambiguous destination — use the li's data-name attribute
+                name = li.getAttribute('data-name');
+            }
+
+            if (name) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'destination';
+                input.value = name;
+                confirmForm.appendChild(input);
+            }
+        });
+
+        // Show a spinner on the confirm button while the Maps API calls run
+        const btn = document.getElementById('confirm-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Finding your best hotel location...';
+
+        confirmForm.submit();
     }
 </script>
 {% endblock %}

@@ -128,6 +128,57 @@ def _calculate_search_radius(geocoded_destinations: list[dict]) -> int:
     return clamped
 
 
+def detect_units(geocoded_destinations: list[dict]) -> str:
+    """
+    Detect whether to use imperial or metric distance units based on the
+    country of the geocoded destinations. Checks the formatted_address field
+    returned by Google's Geocoding API, which always ends with the country name.
+
+    Inputs:
+        geocoded_destinations (list[dict]) — geocoded destinations as returned by
+                                             geocode_destinations(), each with an "address" field
+
+    Returns:
+        str — "imperial" if destinations are in the United States, "metric" otherwise
+
+    Future enhancement: expose this as a user-selectable toggle on the results page
+    so travelers who prefer one system regardless of location can override it.
+    """
+    for dest in geocoded_destinations:
+        address = dest.get("address", "")
+        # Google's formatted_address ends with the country — "United States" for US addresses
+        if "United States" in address:
+            return "imperial"
+    return "metric"
+
+
+# Place types returned by the Places API that are too generic to display —
+# we skip these and show the first more-specific type instead
+_GENERIC_PLACE_TYPES = {"lodging", "point_of_interest", "establishment", "food", "store"}
+
+
+def _format_place_type(types: list[str]) -> str:
+    """
+    Extract the most descriptive place type from the Places API types array
+    and format it for display. Skips generic catch-all types like "lodging"
+    and "establishment" to surface more specific labels like "hotel" or
+    "bed_and_breakfast".
+
+    Inputs:
+        types (list[str]) — the types array from a Places API result,
+                            e.g. ["hotel", "lodging", "establishment"]
+
+    Returns:
+        str — a human-readable label, e.g. "Hotel", "Bed And Breakfast", "Lodging"
+    """
+    for t in types:
+        if t not in _GENERIC_PLACE_TYPES:
+            # Convert snake_case to Title Case for display: "bed_and_breakfast" → "Bed And Breakfast"
+            return t.replace("_", " ").title()
+    # All types were generic — fall back to "Lodging" as the least-wrong label
+    return "Lodging"
+
+
 def _max_hotel_results() -> int:
     """
     Read the maximum number of hotel results to return from the MAX_HOTEL_RESULTS
@@ -161,12 +212,13 @@ def find_hotels_near_destinations(geocoded_destinations: list[dict]) -> list[dic
     Returns:
         list[dict] — one entry per hotel found, sorted by Google's relevance ranking:
             {
-                "name"     : str,         # hotel name
-                "address"  : str,         # vicinity / street address
-                "lat"      : float,       # latitude
-                "lng"      : float,       # longitude
-                "rating"   : float|None,  # Google rating (1-5), or None if not available
-                "place_id" : str,         # Google place ID for future API calls
+                "name"       : str,         # hotel name
+                "address"    : str,         # vicinity / street address
+                "lat"        : float,       # latitude
+                "lng"        : float,       # longitude
+                "rating"     : float|None,  # Google rating (1-5), or None if not available
+                "place_id"   : str,         # Google place ID for future API calls
+                "place_type" : str,         # human-readable type, e.g. "Hotel", "Bed And Breakfast"
             }
     """
     # Calculate the centroid and dynamic radius from the destination spread
@@ -200,12 +252,13 @@ def find_hotels_near_destinations(geocoded_destinations: list[dict]) -> list[dic
             # Extract location coordinates from the nested geometry object
             location = place["geometry"]["location"]
             hotels.append({
-                "name"     : place["name"],
-                "address"  : place.get("vicinity", ""),       # vicinity is the street address in Nearby Search
-                "lat"      : location["lat"],
-                "lng"      : location["lng"],
-                "rating"   : place.get("rating"),             # not always present — None if missing
-                "place_id" : place["place_id"],
+                "name"       : place["name"],
+                "address"    : place.get("vicinity", ""),       # vicinity is the street address in Nearby Search
+                "lat"        : location["lat"],
+                "lng"        : location["lng"],
+                "rating"     : place.get("rating"),             # not always present — None if missing
+                "place_id"   : place["place_id"],
+                "place_type" : _format_place_type(place.get("types", [])),  # e.g. "Hotel", "Bed And Breakfast"
             })
 
         print(f"DEBUG found {len(hotels)} hotels near centroid", flush=True)
@@ -219,6 +272,7 @@ def find_hotels_near_destinations(geocoded_destinations: list[dict]) -> list[dic
 def rank_hotels_by_walking_distance(
     hotels: list[dict],
     geocoded_destinations: list[dict],
+    units: str = "metric",
 ) -> list[dict]:
     """
     Rank hotels by total walking distance to all destinations using the
@@ -231,6 +285,9 @@ def rank_hotels_by_walking_distance(
                                              each with "name", "lat", "lng" fields
         geocoded_destinations (list[dict]) — destinations as returned by geocode_destinations(),
                                              each with "name", "lat", "lng" fields
+        units                 (str)        — "metric" (km) or "imperial" (miles); affects the
+                                             human-readable distance_text field only —
+                                             distance_m is always in metres regardless
 
     Returns:
         list[dict] — hotels sorted by total walking distance ascending (best first),
@@ -239,18 +296,28 @@ def rank_hotels_by_walking_distance(
             "fully_reachable"  (bool)       — False if any destination had no walkable route
             "per_destination"  (list[dict]) — breakdown per destination:
                 {
-                    "destination"   : str,      # destination name
-                    "distance_m"    : int|None, # walking distance in metres, None if unreachable
-                    "distance_text" : str,       # human-readable distance e.g. "1.2 km"
-                    "duration_text" : str,       # human-readable walk time e.g. "15 mins"
+                    "label"         : str,       # map marker letter, e.g. "A", "B", "C"
+                    "destination"   : str,       # destination name
+                    "distance_m"    : int|None,  # walking distance in metres, None if unreachable
+                    "distance_text" : str,        # human-readable distance e.g. "1.2 km" or "0.8 mi"
+                    "duration_text" : str,        # human-readable walk time e.g. "15 mins"
                 }
     """
+    # The Distance Matrix API allows a maximum of 100 elements per request,
+    # where elements = number of origins (hotels) × number of destinations.
+    # Trim the hotel list if necessary so we stay within the limit.
+    max_elements = 100
+    max_hotels = max_elements // len(geocoded_destinations)
+    if len(hotels) > max_hotels:
+        print(f"DEBUG trimming hotels from {len(hotels)} to {max_hotels} to stay within Distance Matrix 100-element limit", flush=True)
+        hotels = hotels[:max_hotels]
+
     # Build pipe-separated lat/lng strings — the Distance Matrix API format
     # e.g. "51.5007,-0.1246|51.5194,-0.1270"
     origins_str      = "|".join(f"{h['lat']},{h['lng']}" for h in hotels)
     destinations_str = "|".join(f"{d['lat']},{d['lng']}" for d in geocoded_destinations)
 
-    print(f"DEBUG distance matrix: {len(hotels)} hotels × {len(geocoded_destinations)} destinations", flush=True)
+    print(f"DEBUG distance matrix: {len(hotels)} hotels × {len(geocoded_destinations)} destinations = {len(hotels) * len(geocoded_destinations)} elements", flush=True)
 
     response = requests.get(
         f"{GOOGLE_MAPS_BASE_URL}/distancematrix/json",
@@ -258,6 +325,7 @@ def rank_hotels_by_walking_distance(
             "origins"      : origins_str,
             "destinations" : destinations_str,
             "mode"         : "walking",  # walking distance — most relevant for city tourism
+            "units"        : units,      # "metric" → km, "imperial" → miles in distance_text
             "key"          : _api_key(),
         },
         timeout=15,  # Slightly longer timeout — larger payload than geocoding
@@ -276,12 +344,15 @@ def rank_hotels_by_walking_distance(
         per_destination = []
         fully_reachable = True
 
-        for dest, element in zip(geocoded_destinations, row["elements"]):
+        for i, (dest, element) in enumerate(zip(geocoded_destinations, row["elements"])):
+            # Map marker letter for this destination: A, B, C, ...
+            label = chr(65 + i)
             if element["status"] == "OK":
                 # Normal case — a walkable route exists
                 dist_m = element["distance"]["value"]
                 total_distance += dist_m
                 per_destination.append({
+                    "label"         : label,
                     "destination"   : dest["name"],
                     "distance_m"    : dist_m,
                     "distance_text" : element["distance"]["text"],
@@ -293,6 +364,7 @@ def rank_hotels_by_walking_distance(
                 fully_reachable = False
                 total_distance += 999_999
                 per_destination.append({
+                    "label"         : label,
                     "destination"   : dest["name"],
                     "distance_m"    : None,
                     "distance_text" : "N/A",

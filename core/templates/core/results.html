@@ -1,0 +1,213 @@
+{% extends "core/base.html" %}
+
+{% block title %}Hotel Results — {{ city }}{% endblock %}
+
+{% block content %}
+
+{% if error %}
+{# Something went wrong in one of the Maps API stages — show the error and a way back #}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+        <div class="alert alert-danger mt-4">{{ error }}</div>
+        <a href="/" class="btn btn-outline-secondary">Start over</a>
+    </div>
+</div>
+
+{% else %}
+
+{# Full-width two-column layout: hotel list on the left, map on the right #}
+{# The outer row fills the viewport height minus the navbar #}
+<div class="row g-0" style="height: calc(100vh - 72px);">
+
+    {# ── Left column: scrollable ranked hotel list ── #}
+    <div class="col-12 col-lg-5 h-100 overflow-auto p-3">
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1 class="h5 mb-0">Best Hotels in {{ city }}</h1>
+            <a href="/" class="btn btn-outline-secondary btn-sm">Start over</a>
+        </div>
+
+        <p class="text-muted small mb-2">
+            Ranked by total walking distance to your {{ geocoded_destinations|length }} destination{{ geocoded_destinations|length|pluralize }}.
+        </p>
+
+        {# Destination legend — maps the A/B/C blue map markers to their names #}
+        <div class="mb-3">
+            {% for dest in geocoded_destinations %}
+            <span class="me-3 small">
+                <span class="fw-semibold text-primary">{{ dest.label }}</span>
+                — {{ dest.name }}
+            </span>
+            {% endfor %}
+        </div>
+
+        {% for hotel in ranked_hotels %}
+        {# Each hotel card is clickable — clicking highlights the matching map marker #}
+        <div class="card mb-2 hotel-card" style="cursor: pointer;" onclick="focusHotel({{ forloop.counter0 }})">
+            <div class="card-body p-3">
+
+                {# Header row: rank badge + name + place_type badge + warning + rating #}
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <span class="badge bg-danger me-2">#{{ forloop.counter }}</span>
+                        <strong>{{ hotel.name }}</strong>
+                        <span class="badge bg-secondary ms-1">{{ hotel.place_type }}</span>
+                        {% if not hotel.fully_reachable %}
+                            {# Warn if one or more destinations had no walkable route #}
+                            <span class="badge bg-warning text-dark ms-1" title="One or more destinations could not be reached on foot">!</span>
+                        {% endif %}
+                    </div>
+                    {% if hotel.rating %}
+                    <span class="text-warning small fw-semibold">{{ hotel.rating }} ★</span>
+                    {% endif %}
+                </div>
+
+                {# Address and total walking distance summary #}
+                <div class="text-muted small mt-1">{{ hotel.address }}</div>
+                <div class="mt-2 small fw-semibold">
+                    Total walking: {{ hotel.total_walking_m }}m
+                </div>
+
+                {# Collapsible per-destination breakdown #}
+                <a class="small text-muted d-block mt-1"
+                   data-bs-toggle="collapse"
+                   href="#hotel-{{ forloop.counter0 }}-details"
+                   onclick="event.stopPropagation()">
+                    Walking distances ▾
+                </a>
+                <div class="collapse" id="hotel-{{ forloop.counter0 }}-details">
+                    {% for d in hotel.per_destination %}
+                    <div class="small text-muted ps-2">
+                        {# d.label is the map marker letter (A, B, C...) matching the blue destination markers #}
+                        <span class="fw-semibold text-primary">{{ d.label }}</span>
+                        — {{ d.destination }}: {{ d.distance_text }} ({{ d.duration_text }})
+                    </div>
+                    {% endfor %}
+                </div>
+
+            </div>
+        </div>
+        {% endfor %}
+
+    </div>
+
+    {# ── Right column: interactive Google Map ── #}
+    <div class="col-12 col-lg-7 h-100">
+        <div id="map" style="width: 100%; height: 100%;"></div>
+    </div>
+
+</div>
+
+{# Pass hotel and destination data to the map JS as JSON — serialized server-side #}
+{# The |safe filter tells Django not to HTML-escape the JSON (it's safe here since we built it) #}
+<script>
+    const hotelsData      = {{ hotels_json|safe }};
+    const destinationsData = {{ destinations_json|safe }};
+</script>
+
+{# Load the Maps JavaScript API — key is passed from the view, not hardcoded #}
+{# callback=initMap tells the API to call our initMap() function once loaded #}
+<script>
+    // Map and marker references — stored at module scope so focusHotel() can access them
+    let map;
+    const hotelMarkers      = [];  // one per ranked hotel
+    const destinationMarkers = []; // one per geocoded destination
+    const infoWindows        = []; // one per hotel marker, holds the popup content
+
+    // Called automatically by the Maps JS API once it has loaded
+    function initMap() {
+        // Calculate the center of all destinations to use as the initial map view
+        const avgLat = destinationsData.reduce((s, d) => s + d.lat, 0) / destinationsData.length;
+        const avgLng = destinationsData.reduce((s, d) => s + d.lng, 0) / destinationsData.length;
+
+        map = new google.maps.Map(document.getElementById('map'), {
+            center: { lat: avgLat, lng: avgLng },
+            zoom: 14,  // City-block level — good starting zoom for walking distances
+        });
+
+        // ── Destination markers (blue, lettered A/B/C...) ──
+        destinationsData.forEach((dest, i) => {
+            const label = String.fromCharCode(65 + i); // A, B, C, ...
+            const marker = new google.maps.Marker({
+                position : { lat: dest.lat, lng: dest.lng },
+                map      : map,
+                title    : dest.name,
+                label    : { text: label, color: 'white', fontWeight: 'bold' },
+                icon     : {
+                    // Blue circle for destinations
+                    path        : google.maps.SymbolPath.CIRCLE,
+                    fillColor   : '#0d6efd',
+                    fillOpacity : 1,
+                    strokeColor : 'white',
+                    strokeWeight: 2,
+                    scale       : 14,
+                },
+                zIndex: 10,  // Keep destinations above hotel markers
+            });
+
+            // Simple info window showing the destination name
+            const iw = new google.maps.InfoWindow({ content: `<strong>${dest.name}</strong>` });
+            marker.addListener('click', () => iw.open(map, marker));
+            destinationMarkers.push(marker);
+        });
+
+        // ── Hotel markers (red, numbered 1/2/3...) ──
+        hotelsData.forEach((hotel, i) => {
+            const marker = new google.maps.Marker({
+                position : { lat: hotel.lat, lng: hotel.lng },
+                map      : map,
+                title    : hotel.name,
+                label    : { text: String(hotel.rank), color: 'white', fontWeight: 'bold' },
+                icon     : {
+                    // Red circle for hotels
+                    path        : google.maps.SymbolPath.CIRCLE,
+                    fillColor   : '#dc3545',
+                    fillOpacity : 1,
+                    strokeColor : 'white',
+                    strokeWeight: 2,
+                    scale       : 14,
+                },
+            });
+
+            // Info window shows hotel name, rating, and total walking distance
+            const rating = hotel.rating ? `${hotel.rating} ★` : 'No rating';
+            const iw = new google.maps.InfoWindow({
+                content: `
+                    <div style="min-width:160px">
+                        <strong>#${hotel.rank} ${hotel.name}</strong><br>
+                        <span style="color:#888">${rating}</span><br>
+                        <span>Total walking: ${hotel.total_walking_m}m</span>
+                    </div>
+                `
+            });
+
+            // Close all other info windows when this one opens — keeps the map tidy
+            marker.addListener('click', () => {
+                infoWindows.forEach(w => w.close());
+                iw.open(map, marker);
+            });
+
+            hotelMarkers.push(marker);
+            infoWindows.push(iw);
+        });
+    }
+
+    // Called when the user clicks a hotel card in the list —
+    // pans the map to that hotel and opens its info window
+    function focusHotel(index) {
+        const marker = hotelMarkers[index];
+        map.panTo(marker.getPosition());
+        map.setZoom(15);
+        infoWindows.forEach(w => w.close());
+        infoWindows[index].open(map, marker);
+    }
+</script>
+
+{# Load Maps JS API asynchronously — callback triggers initMap() once ready #}
+<script async defer
+    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap">
+</script>
+
+{% endif %}
+
+{% endblock %}
