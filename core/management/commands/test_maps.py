@@ -3,15 +3,15 @@ Django management command for testing Google Maps API integration in stages.
 
 Usage:
     python manage.py test_maps --stage 1   # test geocoding only
-    python manage.py test_maps --stage 2   # test hotel search (coming soon)
-    python manage.py test_maps --stage 3   # test distance matrix (coming soon)
+    python manage.py test_maps --stage 2   # test hotel search
+    python manage.py test_maps --stage 3   # test distance matrix ranking
 
 This lets us verify each Maps API function in isolation before wiring
 everything into the web UI.
 """
 import os
 from django.core.management.base import BaseCommand
-from core.services.maps_service import geocode_destinations, find_hotels_near_destinations
+from core.services.maps_service import geocode_destinations, find_hotels_near_destinations, rank_hotels_by_walking_distance
 
 
 class Command(BaseCommand):
@@ -46,6 +46,8 @@ class Command(BaseCommand):
             self._test_geocoding()
         elif stage == 2:
             self._test_hotel_search()
+        elif stage == 3:
+            self._test_distance_matrix()
         else:
             self.stdout.write(self.style.WARNING(f"Stage {stage} not implemented yet."))
 
@@ -136,3 +138,48 @@ class Command(BaseCommand):
             )
 
         self.stdout.write(self.style.SUCCESS(f"\nFound {len(hotels)} hotels near centroid."))
+
+    def _test_distance_matrix(self):
+        """
+        Stage 3: Test rank_hotels_by_walking_distance() using results from
+        Stages 1 and 2 as input. Prints hotels ranked by total walking distance
+        to all destinations so we can verify the ranking logic before wiring
+        into the web UI.
+        """
+        city = "London, UK"
+        destinations = [
+            "Big Ben",
+            "Tower of London",
+            "British Museum",
+            "Borough Market",
+        ]
+
+        self.stdout.write(f"\nStage 3: Ranking hotels by walking distance in {city}")
+        self.stdout.write("-" * 50)
+
+        # Stage 3 depends on Stages 1 and 2 — run them first
+        self.stdout.write("Step 1: Geocoding destinations...")
+        geocoded = geocode_destinations(city, destinations)
+        if not geocoded:
+            self.stdout.write(self.style.ERROR("Geocoding failed — cannot proceed"))
+            return
+
+        self.stdout.write(f"Step 2: Finding hotels near centroid...")
+        hotels = find_hotels_near_destinations(geocoded)
+        if not hotels:
+            self.stdout.write(self.style.WARNING("No hotels found — cannot proceed"))
+            return
+
+        self.stdout.write(f"Step 3: Ranking {len(hotels)} hotels by walking distance...")
+        ranked = rank_hotels_by_walking_distance(hotels, geocoded)
+
+        # Print ranked results — most useful hotel first
+        for i, h in enumerate(ranked, start=1):
+            rating = f"{h['rating']} ★" if h['rating'] else "No rating"
+            self.stdout.write(f"\n  #{i} {h['name']} ({rating})")
+            self.stdout.write(f"      Total walking: {h['total_walking_m']}m")
+            # Show the per-destination breakdown so we can verify accuracy
+            for d in h["per_destination"]:
+                self.stdout.write(f"      → {d['destination']}: {d['distance_text']} ({d['duration_text']})")
+
+        self.stdout.write(self.style.SUCCESS(f"\nRanked {len(ranked)} hotels successfully."))

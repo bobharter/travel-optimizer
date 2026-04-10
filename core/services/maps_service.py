@@ -216,6 +216,102 @@ def find_hotels_near_destinations(geocoded_destinations: list[dict]) -> list[dic
         raise
 
 
+def rank_hotels_by_walking_distance(
+    hotels: list[dict],
+    geocoded_destinations: list[dict],
+) -> list[dict]:
+    """
+    Rank hotels by total walking distance to all destinations using the
+    Google Maps Distance Matrix API. Makes a single API call with all hotels
+    as origins and all destinations as destinations — the API handles the
+    full matrix in one request.
+
+    Inputs:
+        hotels                (list[dict]) — hotels as returned by find_hotels_near_destinations(),
+                                             each with "name", "lat", "lng" fields
+        geocoded_destinations (list[dict]) — destinations as returned by geocode_destinations(),
+                                             each with "name", "lat", "lng" fields
+
+    Returns:
+        list[dict] — hotels sorted by total walking distance ascending (best first),
+                     each hotel dict extended with:
+            "total_walking_m"  (int)        — sum of walking distances to all destinations in metres
+            "fully_reachable"  (bool)       — False if any destination had no walkable route
+            "per_destination"  (list[dict]) — breakdown per destination:
+                {
+                    "destination"   : str,      # destination name
+                    "distance_m"    : int|None, # walking distance in metres, None if unreachable
+                    "distance_text" : str,       # human-readable distance e.g. "1.2 km"
+                    "duration_text" : str,       # human-readable walk time e.g. "15 mins"
+                }
+    """
+    # Build pipe-separated lat/lng strings — the Distance Matrix API format
+    # e.g. "51.5007,-0.1246|51.5194,-0.1270"
+    origins_str      = "|".join(f"{h['lat']},{h['lng']}" for h in hotels)
+    destinations_str = "|".join(f"{d['lat']},{d['lng']}" for d in geocoded_destinations)
+
+    print(f"DEBUG distance matrix: {len(hotels)} hotels × {len(geocoded_destinations)} destinations", flush=True)
+
+    response = requests.get(
+        f"{GOOGLE_MAPS_BASE_URL}/distancematrix/json",
+        params={
+            "origins"      : origins_str,
+            "destinations" : destinations_str,
+            "mode"         : "walking",  # walking distance — most relevant for city tourism
+            "key"          : _api_key(),
+        },
+        timeout=15,  # Slightly longer timeout — larger payload than geocoding
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    if data["status"] != "OK":
+        raise RuntimeError(f"Distance Matrix API error: {data['status']} — {data.get('error_message', '')}")
+
+    # Each row in data["rows"] corresponds to one hotel (origin),
+    # each element within a row corresponds to one destination
+    ranked = []
+    for hotel, row in zip(hotels, data["rows"]):
+        total_distance = 0
+        per_destination = []
+        fully_reachable = True
+
+        for dest, element in zip(geocoded_destinations, row["elements"]):
+            if element["status"] == "OK":
+                # Normal case — a walkable route exists
+                dist_m = element["distance"]["value"]
+                total_distance += dist_m
+                per_destination.append({
+                    "destination"   : dest["name"],
+                    "distance_m"    : dist_m,
+                    "distance_text" : element["distance"]["text"],
+                    "duration_text" : element["duration"]["text"],
+                })
+            else:
+                # No walkable route (e.g. island, motorway-only) — penalize heavily
+                # so this hotel sorts to the bottom rather than crashing
+                fully_reachable = False
+                total_distance += 999_999
+                per_destination.append({
+                    "destination"   : dest["name"],
+                    "distance_m"    : None,
+                    "distance_text" : "N/A",
+                    "duration_text" : "N/A",
+                })
+
+        ranked.append({
+            **hotel,                           # carry over all existing hotel fields
+            "total_walking_m" : total_distance,
+            "fully_reachable" : fully_reachable,
+            "per_destination" : per_destination,
+        })
+
+    # Sort ascending — shortest total walk first
+    ranked.sort(key=lambda h: h["total_walking_m"])
+    print(f"DEBUG ranking complete — top hotel: {ranked[0]['name']} ({ranked[0]['total_walking_m']}m total)", flush=True)
+    return ranked
+
+
 def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
     """
     Convert a list of destination names into geographic coordinates using
