@@ -1,9 +1,20 @@
 import json
 import os
+import socket
 
 # OpenRouter exposes an OpenAI-compatible API, so we use the openai SDK
 # pointed at OpenRouter's base URL instead of the Anthropic SDK.
 from openai import OpenAI
+
+# Force IPv4 for all socket connections in this process.
+# Bob's machine tries IPv6 first, which hangs for ~40 seconds before falling
+# back to IPv4. Patching socket.getaddrinfo at this low level covers all HTTP
+# libraries including httpx (used internally by the openai SDK).
+_original_getaddrinfo = socket.getaddrinfo
+def _getaddrinfo_ipv4_only(host, port, family=0, type=0, proto=0, flags=0):
+    """Force IPv4 by overriding the address family to AF_INET."""
+    return _original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+socket.getaddrinfo = _getaddrinfo_ipv4_only
 
 
 # OpenRouter's API endpoint — drop-in replacement for OpenAI's base URL
@@ -77,7 +88,7 @@ Extract all destinations and categorize them. For each destination provide:
 - "name": the correct, properly spelled place name (your best guess if ambiguous)
 - "category": a short, specific label like "Restaurant", "Art Museum", "Ancient Monument", "Park", "Cathedral", etc.
 - "url": the official website URL for the destination if you are confident it exists and is current (e.g. "https://colosseo.it"), or null if you are not sure
-- "alternatives": if the user's input was ambiguous and could reasonably match multiple distinct real places, list all plausible candidates as objects with "name", "category", and "url" fields (url may be null) — include the chosen "name" entry first. Use an empty array [] when there is no meaningful ambiguity.
+- "alternatives": ONLY populate this if the user's input was genuinely ambiguous and matches 2 or more distinct real places. List all plausible candidates as objects with "name", "category", and "url" fields (url may be null) — include the chosen "name" entry first. Use an empty array [] for any destination that has one clear match — do NOT put a single-entry array.
 
 Split them into two groups:
 - "named": places the user explicitly mentioned (fix any typos or misspellings)

@@ -68,7 +68,7 @@
                 <li class="list-group-item d-flex align-items-center">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
                     <span>
-                        {% if d.alternatives %}
+                        {% if d.alternatives|length > 1 %}
                             {# Ambiguous input: show a dropdown so the user can pick the place they meant. #}
                             {# Each option carries a data-url attribute so the link icon can update on change. #}
                             {# Claude's best guess is the first option (matches d.name). #}

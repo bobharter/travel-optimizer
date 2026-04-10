@@ -2,4 +2,6 @@ Django==5.1.4
 gunicorn==23.0.0
 psycopg2-binary==2.9.10
 openai>=1.0.0
+# googlemaps>=4.10.0  # Replaced with direct requests calls — library had ~40s per-call overhead
+requests>=2.31.0
 python-dotenv==1.0.1
