@@ -1,6 +1,6 @@
 {% extends "core/base.html" %}
 
-{% block title %}Hotel Results — {{ city }}{% endblock %}
+{% block title %}Hotels by Walking Distance — {{ city }}{% endblock %}
 
 {% block content %}
 
@@ -23,7 +23,7 @@
     <div class="col-12 col-lg-5 h-100 overflow-auto p-3">
 
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h1 class="h5 mb-0">Best Hotels in {{ city }}</h1>
+            <h1 class="h5 mb-0">Hotels by Walking Distance in {{ city }}</h1>
             <a href="/" class="btn btn-outline-secondary btn-sm">Start over</a>
         </div>
 
@@ -31,13 +31,11 @@
             Ranked by total walking distance to your {{ geocoded_destinations|length }} destination{{ geocoded_destinations|length|pluralize }}.
         </p>
 
-        {# Destination legend — maps the A/B/C blue map markers to their names #}
-        <div class="mb-3">
+        {# Destination legend — maps the A/B/C blue map markers to their name #}
+        {# Each entry is its own block line so long names don't split the letter from the dash #}
+        <div class="mb-3 small">
             {% for dest in geocoded_destinations %}
-            <span class="me-3 small">
-                <span class="fw-semibold text-primary">{{ dest.label }}</span>
-                — {{ dest.name }}
-            </span>
+            <div><span class="fw-semibold text-primary">{{ dest.label }}</span> — {{ dest.name }}</div>
             {% endfor %}
         </div>
 

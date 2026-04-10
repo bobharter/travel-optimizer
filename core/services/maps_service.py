@@ -146,8 +146,9 @@ def detect_units(geocoded_destinations: list[dict]) -> str:
     """
     for dest in geocoded_destinations:
         address = dest.get("address", "")
-        # Google's formatted_address ends with the country — "United States" for US addresses
-        if "United States" in address:
+        # Google's formatted_address can end with either "USA" (short form) or
+        # "United States" (long form) depending on the place type — check both
+        if "United States" in address or ", USA" in address:
             return "imperial"
     return "metric"
 
