@@ -1,4 +1,5 @@
 import os
+import math
 import socket
 import requests
 import urllib3.util.connection as urllib3_cn
@@ -17,6 +18,16 @@ urllib3_cn.allowed_gai_family = _force_ipv4
 # Base URL for all Google Maps REST APIs
 GOOGLE_MAPS_BASE_URL = "https://maps.googleapis.com/maps/api"
 
+# Radius clamping bounds — prevents searches that are too tight (few/no results)
+# or absurdly large (irrelevant hotels far from destinations)
+MIN_SEARCH_RADIUS_METERS = 500
+MAX_SEARCH_RADIUS_METERS = 5000
+
+# Fraction of the max destination spread to use as the hotel search radius.
+# 1/2 means hotels up to half the full spread from the centroid (looser).
+# 1/3 means hotels within a tighter central zone — good default for city trips.
+RADIUS_FRACTION = 1 / 3
+
 
 def _api_key() -> str:
     """
@@ -34,6 +45,175 @@ def _api_key() -> str:
 #         key=os.environ["GOOGLE_MAPS_API_KEY"],
 #         timeout=10,
 #     )
+
+
+def _calculate_centroid(geocoded_destinations: list[dict]) -> tuple[float, float]:
+    """
+    Calculate the geographic centroid (average position) of a list of geocoded
+    destinations. Used to find the central point around which to search for hotels.
+
+    Inputs:
+        geocoded_destinations (list[dict]) — list of dicts each containing "lat" and "lng",
+                                             as returned by geocode_destinations()
+
+    Returns:
+        tuple (lat, lng) — the centroid coordinates as floats
+    """
+    # Simple average of lat/lng — accurate enough for city-scale distances
+    avg_lat = sum(d["lat"] for d in geocoded_destinations) / len(geocoded_destinations)
+    avg_lng = sum(d["lng"] for d in geocoded_destinations) / len(geocoded_destinations)
+    return avg_lat, avg_lng
+
+
+def _haversine_distance(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """
+    Calculate the straight-line distance in metres between two geographic
+    coordinates using the Haversine formula. Accurate enough for city-scale
+    distances where Earth's curvature has minimal effect.
+
+    Inputs:
+        lat1, lng1 (float) — coordinates of the first point
+        lat2, lng2 (float) — coordinates of the second point
+
+    Returns:
+        float — distance in metres between the two points
+    """
+    # Earth's mean radius in metres
+    R = 6_371_000
+
+    # Convert degrees to radians for the trig functions
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+
+    # Haversine formula
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _calculate_search_radius(geocoded_destinations: list[dict]) -> int:
+    """
+    Calculate a dynamic hotel search radius based on the spread of the user's
+    destinations. Uses half the distance between the two farthest destinations
+    so that the search circle is just large enough to encompass the area
+    between them, clamped to sensible min/max bounds.
+
+    Inputs:
+        geocoded_destinations (list[dict]) — geocoded destinations, each with "lat" and "lng"
+
+    Returns:
+        int — search radius in metres, clamped between MIN_SEARCH_RADIUS_METERS
+              and MAX_SEARCH_RADIUS_METERS
+    """
+    # With only one destination there's no spread — use the minimum radius
+    if len(geocoded_destinations) < 2:
+        return MIN_SEARCH_RADIUS_METERS
+
+    # Find the maximum pairwise distance between all destinations
+    max_distance = 0.0
+    for i, a in enumerate(geocoded_destinations):
+        for b in geocoded_destinations[i + 1:]:
+            # Compare every unique pair (i, j) where j > i to avoid duplicates
+            dist = _haversine_distance(a["lat"], a["lng"], b["lat"], b["lng"])
+            if dist > max_distance:
+                max_distance = dist
+
+    # Use RADIUS_FRACTION of the full spread — 1/3 keeps hotels in the tighter
+    # central zone rather than allowing them to drift toward the outer edges
+    radius = max_distance * RADIUS_FRACTION
+
+    # Clamp to avoid degenerate cases (all destinations at the same spot, or very spread out)
+    clamped = int(max(MIN_SEARCH_RADIUS_METERS, min(radius, MAX_SEARCH_RADIUS_METERS)))
+    print(f"DEBUG max destination spread: {max_distance:.0f}m → search radius: {clamped}m", flush=True)
+    return clamped
+
+
+def _max_hotel_results() -> int:
+    """
+    Read the maximum number of hotel results to return from the MAX_HOTEL_RESULTS
+    env var. Defaults to 20 if not set. Configurable in .env without touching code.
+
+    Returns:
+        int — maximum number of hotels to fetch and rank
+    """
+    try:
+        return int(os.environ.get("MAX_HOTEL_RESULTS", "20"))
+    except ValueError:
+        # If the env var is set to a non-integer, fall back to the default
+        print("WARNING: MAX_HOTEL_RESULTS is not a valid integer — using default of 20", flush=True)
+        return 20
+
+
+def find_hotels_near_destinations(geocoded_destinations: list[dict]) -> list[dict]:
+    """
+    Find hotels near the centroid of the given destinations using the
+    Google Maps Places Nearby Search API. The search radius is calculated
+    dynamically based on the spread of the destinations (half the distance
+    between the two farthest destinations), clamped between
+    MIN_SEARCH_RADIUS_METERS and MAX_SEARCH_RADIUS_METERS. The maximum number
+    of results is read from the MAX_HOTEL_RESULTS env var (default: 20).
+
+    Inputs:
+        geocoded_destinations (list[dict]) — geocoded destinations as returned by
+                                             geocode_destinations(); each must have
+                                             "lat" and "lng" fields
+
+    Returns:
+        list[dict] — one entry per hotel found, sorted by Google's relevance ranking:
+            {
+                "name"     : str,         # hotel name
+                "address"  : str,         # vicinity / street address
+                "lat"      : float,       # latitude
+                "lng"      : float,       # longitude
+                "rating"   : float|None,  # Google rating (1-5), or None if not available
+                "place_id" : str,         # Google place ID for future API calls
+            }
+    """
+    # Calculate the centroid and dynamic radius from the destination spread
+    centroid_lat, centroid_lng = _calculate_centroid(geocoded_destinations)
+    radius_meters = _calculate_search_radius(geocoded_destinations)
+    max_results = _max_hotel_results()
+    print(f"DEBUG centroid: {centroid_lat:.6f}, {centroid_lng:.6f}", flush=True)
+    print(f"DEBUG searching for up to {max_results} hotels within {radius_meters}m of centroid...", flush=True)
+
+    try:
+        # Call the Places Nearby Search API directly (same approach as geocoding)
+        response = requests.get(
+            f"{GOOGLE_MAPS_BASE_URL}/place/nearbysearch/json",
+            params={
+                "location": f"{centroid_lat},{centroid_lng}",
+                "radius": radius_meters,
+                "type": "lodging",   # covers hotels, boutique hotels, B&Bs, etc.
+                "key": _api_key(),
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if data["status"] not in ("OK", "ZERO_RESULTS"):
+            # Unexpected API error status (e.g. REQUEST_DENIED, INVALID_REQUEST)
+            raise RuntimeError(f"Places API error: {data['status']} — {data.get('error_message', '')}")
+
+        hotels = []
+        for place in data.get("results", [])[:max_results]:
+            # Extract location coordinates from the nested geometry object
+            location = place["geometry"]["location"]
+            hotels.append({
+                "name"     : place["name"],
+                "address"  : place.get("vicinity", ""),       # vicinity is the street address in Nearby Search
+                "lat"      : location["lat"],
+                "lng"      : location["lng"],
+                "rating"   : place.get("rating"),             # not always present — None if missing
+                "place_id" : place["place_id"],
+            })
+
+        print(f"DEBUG found {len(hotels)} hotels near centroid", flush=True)
+        return hotels
+
+    except Exception as e:
+        print(f"WARNING: hotel search failed: {e}", flush=True)
+        raise
 
 
 def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:

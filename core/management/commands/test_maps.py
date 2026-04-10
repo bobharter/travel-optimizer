@@ -11,7 +11,7 @@ everything into the web UI.
 """
 import os
 from django.core.management.base import BaseCommand
-from core.services.maps_service import geocode_destinations
+from core.services.maps_service import geocode_destinations, find_hotels_near_destinations
 
 
 class Command(BaseCommand):
@@ -44,6 +44,8 @@ class Command(BaseCommand):
 
         if stage == 1:
             self._test_geocoding()
+        elif stage == 2:
+            self._test_hotel_search()
         else:
             self.stdout.write(self.style.WARNING(f"Stage {stage} not implemented yet."))
 
@@ -85,3 +87,52 @@ class Command(BaseCommand):
             )
 
         self.stdout.write(self.style.SUCCESS(f"\nGeocoded {len(results)} of {len(destinations)} destinations successfully."))
+        return results
+
+    def _test_hotel_search(self):
+        """
+        Stage 2: Test find_hotels_near_destinations() using the geocoded results
+        from Stage 1 as input. Prints the hotels found near the centroid so we
+        can verify the search area and result quality before Stage 3.
+        """
+        city = "London, UK"
+        destinations = [
+            "Big Ben",
+            "Tower of London",
+            "British Museum",
+            "Borough Market",
+        ]
+
+        self.stdout.write(f"\nStage 2: Finding hotels near destinations in {city}")
+        self.stdout.write("-" * 50)
+
+        # Stage 2 depends on Stage 1 — geocode first, then search for hotels
+        self.stdout.write("Step 1: Geocoding destinations...")
+        geocoded = geocode_destinations(city, destinations)
+
+        if not geocoded:
+            self.stdout.write(self.style.ERROR("Geocoding failed — cannot proceed to hotel search"))
+            return
+
+        self.stdout.write(f"  Geocoded {len(geocoded)} destinations")
+
+        # Search for hotels near the centroid of those destinations
+        self.stdout.write("\nStep 2: Searching for hotels near centroid...")
+        hotels = find_hotels_near_destinations(geocoded)
+
+        if not hotels:
+            self.stdout.write(self.style.WARNING("No hotels found near the centroid — try increasing radius_meters"))
+            return
+
+        for h in hotels:
+            # Show rating as a star-like display, or "No rating" if unavailable
+            rating = f"{h['rating']} ★" if h['rating'] else "No rating"
+            self.stdout.write(
+                f"\n  {h['name']}"
+                f"\n    Address  : {h['address']}"
+                f"\n    Coords   : {h['lat']}, {h['lng']}"
+                f"\n    Rating   : {rating}"
+                f"\n    Place ID : {h['place_id']}"
+            )
+
+        self.stdout.write(self.style.SUCCESS(f"\nFound {len(hotels)} hotels near centroid."))
