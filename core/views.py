@@ -94,6 +94,8 @@ def results(request):
 
     city = request.POST.get('city', '').strip()
     destination_names = request.POST.getlist('destination')
+    # destination_urls is a parallel list — one URL per destination name (may be empty string)
+    destination_urls  = request.POST.getlist('destination_url')
 
     # Validate that we have something to work with before hitting the APIs
     if not city or not destination_names:
@@ -129,26 +131,31 @@ def results(request):
         units = detect_units(geocoded)
         ranked = rank_hotels_by_walking_distance(hotels, geocoded, units=units)
 
-        # Add map marker letter labels (A, B, C...) to geocoded destinations
-        # so the template can display the legend without needing a custom filter
+        # Add map marker letter labels (A, B, C...) and destination URLs to geocoded results.
+        # URLs come from the LLM step and are POSTed alongside the destination names.
+        # Pad with empty strings if the lists differ in length (e.g. manually added destinations).
+        url_by_name = dict(zip(destination_names, destination_urls))
         for i, dest in enumerate(geocoded):
             dest["label"] = chr(65 + i)
+            dest["url"]   = url_by_name.get(dest["name"], "")
 
         # Serialize hotel and destination data as JSON so the map JavaScript can use it
         # Only pass the fields the map needs — keeps the payload lean
         hotels_for_map = [
             {
-                "name"            : h["name"],
-                "lat"             : h["lat"],
-                "lng"             : h["lng"],
-                "rating"          : h["rating"],
-                "total_walking_m" : h["total_walking_m"],
-                "rank"            : i + 1,
+                "name"               : h["name"],
+                "lat"                : h["lat"],
+                "lng"                : h["lng"],
+                "rating"             : h["rating"],
+                "total_walking_m"    : h["total_walking_m"],
+                "total_walking_text" : h["total_walking_text"],
+                "place_id"           : h["place_id"],
+                "rank"               : i + 1,
             }
             for i, h in enumerate(ranked)
         ]
         destinations_for_map = [
-            {"name": d["name"], "lat": d["lat"], "lng": d["lng"]}
+            {"name": d["name"], "lat": d["lat"], "lng": d["lng"], "url": d.get("url", "")}
             for d in geocoded
         ]
 

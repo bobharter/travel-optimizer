@@ -65,8 +65,9 @@
             <h3 class="h6 text-muted mb-2">Your Named Destinations</h3>
             <ul class="list-group mb-3" id="named-list">
                 {% for d in named %}
-                {# data-name lets the confirm JS extract the destination name without parsing display text #}
-                <li class="list-group-item d-flex align-items-center" data-name="{{ d.name }}">
+                {# data-name: destination name for form submission #}
+                {# data-url: official website URL, forwarded to the results page for the legend links #}
+                <li class="list-group-item d-flex align-items-center" data-name="{{ d.name }}" data-url="{{ d.url|default:'' }}">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
                     <span>
                         {% if d.alternatives|length > 1 %}
@@ -107,8 +108,8 @@
             <h3 class="h6 text-muted mt-3 mb-2">AI-Recommended Destinations</h3>
             <ul class="list-group mb-3" id="recommended-list">
                 {% for d in recommended %}
-                {# data-name lets the confirm JS extract the destination name #}
-                <li class="list-group-item d-flex align-items-center" data-name="{{ d.name }}">
+                {# data-name and data-url forwarded to the results page — same as named destinations #}
+                <li class="list-group-item d-flex align-items-center" data-name="{{ d.name }}" data-url="{{ d.url|default:'' }}">
                     <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
                     <span>
                         {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.name }}</a>{% else %}{{ d.name }}{% endif %}
@@ -118,6 +119,14 @@
                 {% endfor %}
             </ul>
             {% endif %}
+
+            {# Add a destination manually — appends a new checked item to the named list #}
+            <div class="input-group input-group-sm mb-3">
+                <input type="text" id="add-destination-input" class="form-control"
+                       placeholder="Add another destination..."
+                       onkeydown="if(event.key==='Enter'){event.preventDefault();addDestination();}">
+                <button class="btn btn-outline-primary" type="button" onclick="addDestination()">Add</button>
+            </div>
 
             {# Hidden form that confirmDestinations() populates and submits to the results view #}
             {# City and destination names are injected by JS before submission #}
@@ -182,35 +191,47 @@
         }
     }
 
-    // Collect all checked destination names and submit them to the results view.
-    // For ambiguous items (dropdowns), uses the selected option's data-name attribute.
-    // For unambiguous items, uses the parent <li>'s data-name attribute.
+    // Collect all checked destination names (and their URLs) and submit to the results view.
+    // For ambiguous items (dropdowns), uses the selected option's data-name / data-url.
+    // For unambiguous items, uses the parent <li>'s data-name / data-url attributes.
+    // Each destination gets a parallel destination_url hidden input so the results page
+    // can display linked destination names in the legend.
     function confirmDestinations() {
         const confirmForm = document.getElementById('confirm-form');
 
-        // Remove any destination inputs from a previous attempt
-        confirmForm.querySelectorAll('input[name="destination"]').forEach(el => el.remove());
+        // Remove any inputs from a previous attempt
+        confirmForm.querySelectorAll('input[name="destination"], input[name="destination_url"]').forEach(el => el.remove());
 
-        // Add one hidden input per checked destination
+        // Add one hidden input pair (name + url) per checked destination
         document.querySelectorAll('.destination-checkbox:checked').forEach(cb => {
             const li = cb.closest('li');
             const select = li.querySelector('select');
-            let name;
+            let name, url;
 
             if (select) {
-                // Ambiguous destination — use the selected option's data-name (just the place name)
-                name = select.options[select.selectedIndex].getAttribute('data-name');
+                // Ambiguous destination — use the selected option's attributes
+                const opt = select.options[select.selectedIndex];
+                name = opt.getAttribute('data-name');
+                url  = opt.getAttribute('data-url') || '';
             } else {
-                // Unambiguous destination — use the li's data-name attribute
+                // Unambiguous destination — use the li's attributes
                 name = li.getAttribute('data-name');
+                url  = li.getAttribute('data-url') || '';
             }
 
             if (name) {
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = 'destination';
-                input.value = name;
-                confirmForm.appendChild(input);
+                const nameInput = document.createElement('input');
+                nameInput.type = 'hidden';
+                nameInput.name = 'destination';
+                nameInput.value = name;
+                confirmForm.appendChild(nameInput);
+
+                // Parallel URL input — empty string if no URL available
+                const urlInput = document.createElement('input');
+                urlInput.type = 'hidden';
+                urlInput.name = 'destination_url';
+                urlInput.value = url;
+                confirmForm.appendChild(urlInput);
             }
         });
 
@@ -220,6 +241,33 @@
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Finding your best hotel location...';
 
         confirmForm.submit();
+    }
+
+    // Append a manually-typed destination to the named list as a new checked item.
+    // Manually added destinations have no URL (the LLM didn't process them),
+    // so data-url is set to empty string.
+    function addDestination() {
+        const input = document.getElementById('add-destination-input');
+        const name = input.value.trim();
+        if (!name) return;
+
+        // Build a new list item matching the structure of unambiguous named destinations
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex align-items-center';
+        li.setAttribute('data-name', name);
+        li.setAttribute('data-url', '');  // no URL for manually added destinations
+        li.innerHTML = `
+            <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
+            <span>${name}</span>
+        `;
+
+        // Append to the named list (or recommended list if named doesn't exist)
+        const list = document.getElementById('named-list') || document.getElementById('recommended-list');
+        list.appendChild(li);
+
+        input.value = '';
+        input.focus();
+        updateConfirmButton();
     }
 </script>
 {% endblock %}

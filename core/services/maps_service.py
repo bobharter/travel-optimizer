@@ -270,6 +270,28 @@ def find_hotels_near_destinations(geocoded_destinations: list[dict]) -> list[dic
         raise
 
 
+def _format_total_distance(meters: int, units: str) -> str:
+    """
+    Format a total walking distance in metres into a human-readable string
+    using the correct unit system. Mirrors the style of the Distance Matrix
+    API's distance_text field so the UI looks consistent.
+
+    Inputs:
+        meters (int) — total walking distance in metres
+        units  (str) — "imperial" (miles) or "metric" (km)
+
+    Returns:
+        str — e.g. "2.3 mi" or "3.7 km"
+    """
+    if units == "imperial":
+        # 1 metre = 0.000621371 miles
+        miles = meters / 1609.344
+        return f"{miles:.1f} mi"
+    else:
+        km = meters / 1000
+        return f"{km:.1f} km"
+
+
 def rank_hotels_by_walking_distance(
     hotels: list[dict],
     geocoded_destinations: list[dict],
@@ -293,8 +315,9 @@ def rank_hotels_by_walking_distance(
     Returns:
         list[dict] — hotels sorted by total walking distance ascending (best first),
                      each hotel dict extended with:
-            "total_walking_m"  (int)        — sum of walking distances to all destinations in metres
-            "fully_reachable"  (bool)       — False if any destination had no walkable route
+            "total_walking_m"    (int)      — sum of walking distances to all destinations in metres
+            "total_walking_text" (str)      — formatted total, e.g. "2.3 mi" or "3.7 km"
+            "fully_reachable"    (bool)     — False if any destination had no walkable route
             "per_destination"  (list[dict]) — breakdown per destination:
                 {
                     "label"         : str,       # map marker letter, e.g. "A", "B", "C"
@@ -374,9 +397,10 @@ def rank_hotels_by_walking_distance(
 
         ranked.append({
             **hotel,                           # carry over all existing hotel fields
-            "total_walking_m" : total_distance,
-            "fully_reachable" : fully_reachable,
-            "per_destination" : per_destination,
+            "total_walking_m"    : total_distance,
+            "total_walking_text" : _format_total_distance(total_distance, units),
+            "fully_reachable"    : fully_reachable,
+            "per_destination"    : per_destination,
         })
 
     # Sort ascending — shortest total walk first

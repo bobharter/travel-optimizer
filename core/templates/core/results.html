@@ -33,9 +33,17 @@
 
         {# Destination legend — maps the A/B/C blue map markers to their name #}
         {# Each entry is its own block line so long names don't split the letter from the dash #}
+        {# If the LLM returned a URL for this destination, the name is a clickable link #}
         <div class="mb-3 small">
             {% for dest in geocoded_destinations %}
-            <div><span class="fw-semibold text-primary">{{ dest.label }}</span> — {{ dest.name }}</div>
+            <div>
+                <span class="fw-semibold text-primary">{{ dest.label }}</span> —
+                {% if dest.url %}
+                    <a href="{{ dest.url }}" target="_blank" rel="noopener">{{ dest.name }}</a>
+                {% else %}
+                    {{ dest.name }}
+                {% endif %}
+            </div>
             {% endfor %}
         </div>
 
@@ -44,12 +52,14 @@
         <div class="card mb-2 hotel-card" style="cursor: pointer;" onclick="focusHotel({{ forloop.counter0 }})">
             <div class="card-body p-3">
 
-                {# Header row: rank badge + name + place_type badge + warning + rating #}
+                {# Header row: rank badge + name (linked to Google Maps) + warning badge + rating #}
                 <div class="d-flex justify-content-between align-items-start">
                     <div>
                         <span class="badge bg-danger me-2">#{{ forloop.counter }}</span>
-                        <strong>{{ hotel.name }}</strong>
-                        <span class="badge bg-secondary ms-1">{{ hotel.place_type }}</span>
+                        {# Hotel name links to its Google Maps page via place_id — no extra API call needed #}
+                        <strong><a href="https://www.google.com/maps/place/?q=place_id:{{ hotel.place_id }}"
+                                   target="_blank" rel="noopener"
+                                   onclick="event.stopPropagation()">{{ hotel.name }}</a></strong>
                         {% if not hotel.fully_reachable %}
                             {# Warn if one or more destinations had no walkable route #}
                             <span class="badge bg-warning text-dark ms-1" title="One or more destinations could not be reached on foot">!</span>
@@ -63,7 +73,7 @@
                 {# Address and total walking distance summary #}
                 <div class="text-muted small mt-1">{{ hotel.address }}</div>
                 <div class="mt-2 small fw-semibold">
-                    Total walking: {{ hotel.total_walking_m }}m
+                    Total walking: {{ hotel.total_walking_text }}
                 </div>
 
                 {# Collapsible per-destination breakdown #}
@@ -143,8 +153,11 @@
                 zIndex: 10,  // Keep destinations above hotel markers
             });
 
-            // Simple info window showing the destination name
-            const iw = new google.maps.InfoWindow({ content: `<strong>${dest.name}</strong>` });
+            // Info window shows destination name, linked to its official site if available
+            const destContent = dest.url
+                ? `<strong><a href="${dest.url}" target="_blank" rel="noopener">${dest.name}</a></strong>`
+                : `<strong>${dest.name}</strong>`;
+            const iw = new google.maps.InfoWindow({ content: destContent });
             marker.addListener('click', () => iw.open(map, marker));
             destinationMarkers.push(marker);
         });
@@ -167,14 +180,16 @@
                 },
             });
 
-            // Info window shows hotel name, rating, and total walking distance
+            // Info window shows hotel name (linked to Google Maps), rating, and total walking distance
             const rating = hotel.rating ? `${hotel.rating} ★` : 'No rating';
+            // Link hotel name to its Google Maps page using the place_id we already have
+            const mapsUrl = `https://www.google.com/maps/place/?q=place_id:${hotel.place_id}`;
             const iw = new google.maps.InfoWindow({
                 content: `
                     <div style="min-width:160px">
-                        <strong>#${hotel.rank} ${hotel.name}</strong><br>
+                        <strong>#${hotel.rank} <a href="${mapsUrl}" target="_blank" rel="noopener">${hotel.name}</a></strong><br>
                         <span style="color:#888">${rating}</span><br>
-                        <span>Total walking: ${hotel.total_walking_m}m</span>
+                        <span>Total walking: ${hotel.total_walking_text}</span>
                     </div>
                 `
             });
