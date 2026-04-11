@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+from urllib.parse import quote_plus
 
 # OpenRouter exposes an OpenAI-compatible API, so we use the openai SDK
 # pointed at OpenRouter's base URL instead of the Anthropic SDK.
@@ -35,6 +36,24 @@ def _get_model_list() -> list[str]:
     return [m.strip() for m in raw.split(",") if m.strip()]
 
 
+def _google_search_url(name: str, city: str) -> str:
+    """
+    Generate a Google search URL for a destination name and city.
+    Used instead of LLM-generated URLs, which are unreliable and often link
+    to parked domains or hallucinated addresses.
+
+    Inputs:
+        name (str) — destination name, e.g. "Tuscania Cooking School"
+        city (str) — city the user is visiting, e.g. "Rome, Italy"
+
+    Returns:
+        str — a Google search URL, e.g.:
+              "https://www.google.com/search?q=Tuscania+Cooking+School+Rome%2C+Italy"
+    """
+    query = quote_plus(f"{name} {city}")
+    return f"https://www.google.com/search?q={query}"
+
+
 def extract_and_normalize_destinations(city: str, free_text: str) -> dict:
     """
     Use an LLM (via OpenRouter) to extract and normalize travel destinations
@@ -54,16 +73,17 @@ def extract_and_normalize_destinations(city: str, free_text: str) -> dict:
                             requests (e.g. "best pasta", "biggest museum")
 
         Each destination in both lists is a dict with:
-            "name"         (str)        — correct, properly spelled place name (best guess
-                                          when the input is ambiguous)
-            "category"     (str)        — short descriptive label, e.g. "Restaurant", "Art Museum"
-            "url"          (str|None)   — official website URL if the model is confident one
-                                          exists, otherwise null
+            "name"         (str)       — correct, properly spelled place name (best guess
+                                         when the input is ambiguous)
+            "category"     (str)       — short descriptive label, e.g. "Restaurant", "Art Museum"
+            "url"          (str)       — Google search URL generated from the destination name
+                                         and city (not from the LLM — LLM-generated URLs are
+                                         unreliable and often link to parked/wrong domains)
             "alternatives" (list[dict]) — if the user's input was ambiguous and could match
                                           multiple real places, a list of candidate objects
-                                          each with "name", "category", and "url" fields
-                                          (url may be null). The chosen "name" entry appears
-                                          first. Empty list when there is no ambiguity.
+                                          each with "name", "category", and "url" fields.
+                                          The chosen "name" entry appears first.
+                                          Empty list when there is no ambiguity.
 
     Raises:
         RuntimeError — if all models in the fallback list fail
@@ -87,15 +107,14 @@ The user described their trip as:
 Extract all destinations and categorize them. For each destination provide:
 - "name": the correct, properly spelled place name (your best guess if ambiguous)
 - "category": a short, specific label like "Restaurant", "Art Museum", "Ancient Monument", "Park", "Cathedral", etc.
-- "url": the official website URL for the destination if you are confident it exists and is current (e.g. "https://colosseo.it"), or null if you are not sure
-- "alternatives": ONLY populate this if the user's input was genuinely ambiguous and matches 2 or more distinct real places. List all plausible candidates as objects with "name", "category", and "url" fields (url may be null) — include the chosen "name" entry first. Use an empty array [] for any destination that has one clear match — do NOT put a single-entry array.
+- "alternatives": ONLY populate this if the user's input was genuinely ambiguous and matches 2 or more distinct real places. List all plausible candidates as objects with "name" and "category" fields — include the chosen "name" entry first. Use an empty array [] for any destination that has one clear match — do NOT put a single-entry array.
 
 Split them into two groups:
 - "named": places the user explicitly mentioned (fix any typos or misspellings)
 - "recommended": places you are recommending based on vague or category descriptions (e.g. "best pasta", "biggest museum") — for each distinct category or experience the user mentions, choose one specific, well-known, highly-regarded place in {city} that fits, near one of the named destinations if possible. Treat each vague request separately — do not consolidate similar categories. For example, "best art galleries" and "highest-rated museums" must each produce their own distinct recommendation.
 
 Return ONLY this JSON, no explanation, no code fences:
-{{"named": [{{"name": "Millennium Eye", "category": "Observation Wheel", "url": "https://www.londoneye.com", "alternatives": [{{"name": "Millennium Eye", "category": "Observation Wheel", "url": "https://www.londoneye.com"}}, {{"name": "Millennium Bridge", "category": "Landmark Bridge", "url": "https://www.tate.org.uk/visit/tate-modern/millennium-bridge"}}, {{"name": "Millennium Dome", "category": "Entertainment Venue", "url": "https://www.theo2.co.uk"}}]}}], "recommended": [{{"name": "Trattoria Da Enzo al 29", "category": "Restaurant", "url": null, "alternatives": []}}]}}
+{{"named": [{{"name": "Millennium Eye", "category": "Observation Wheel", "alternatives": [{{"name": "Millennium Eye", "category": "Observation Wheel"}}, {{"name": "Millennium Bridge", "category": "Landmark Bridge"}}, {{"name": "Millennium Dome", "category": "Entertainment Venue"}}]}}], "recommended": [{{"name": "Trattoria Da Enzo al 29", "category": "Restaurant", "alternatives": []}}]}}
 
 If there are no vague descriptions, return an empty array for "recommended"."""
 
@@ -123,8 +142,16 @@ If there are no vague descriptions, return an empty array for "recommended"."""
                     raw = raw[4:]
                 raw = raw.strip()
 
-            # If JSON parses successfully, we're done — return immediately
+            # If JSON parses successfully, inject Google search URLs for every
+            # destination and alternative. We generate these ourselves rather than
+            # trusting the LLM — LLM-generated URLs are unreliable and often link
+            # to parked domains or hallucinated addresses.
             result = json.loads(raw)
+            for group in ("named", "recommended"):
+                for dest in result.get(group, []):
+                    dest["url"] = _google_search_url(dest["name"], city)
+                    for alt in dest.get("alternatives", []):
+                        alt["url"] = _google_search_url(alt["name"], city)
             print(f"DEBUG success with model: {model}")
             return result
 
