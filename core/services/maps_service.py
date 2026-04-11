@@ -415,7 +415,72 @@ def rank_hotels_by_walking_distance(
     return ranked
 
 
-def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
+def geocode_city(city: str) -> dict:
+    """
+    Geocode the city the user entered to get its center coordinates.
+    Called before the LLM step in the home view so gibberish/misspelled
+    cities are caught immediately, before any expensive API calls run.
+    The returned coordinates are also used as a location bias when geocoding
+    individual destinations, so ambiguous place names resolve to the correct city.
+
+    Uses the Geocoding API (not Places Text Search) — more reliable for
+    city/region-level lookups than for named landmarks.
+
+    Inputs:
+        city (str) — the city name as entered by the user
+
+    Returns:
+        dict — {
+            "name"    : str,   # city name as entered
+            "address" : str,   # formatted address returned by Google
+            "lat"     : float, # latitude of city center
+            "lng"     : float, # longitude of city center
+        }
+
+    Raises:
+        ValueError — if the city cannot be found, with a message suitable
+                     for display directly to the user
+    """
+    print(f"DEBUG geocoding city: {city!r}", flush=True)
+    try:
+        response = requests.get(
+            f"{GOOGLE_MAPS_BASE_URL}/geocode/json",
+            params={"address": city, "key": _api_key()},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if data["status"] != "OK" or not data["results"]:
+            raise ValueError(
+                f"We couldn't find \"{city}\" as a location. "
+                f"Please check the spelling and try again."
+            )
+
+        best = data["results"][0]
+        location = best["geometry"]["location"]
+        print(f"DEBUG city geocoded: {best['formatted_address']} → {location['lat']}, {location['lng']}", flush=True)
+        return {
+            "name"    : city,
+            "address" : best["formatted_address"],
+            "lat"     : location["lat"],
+            "lng"     : location["lng"],
+        }
+
+    except ValueError:
+        raise  # re-raise our own clean error unchanged
+    except Exception as e:
+        raise ValueError(
+            f"We couldn't look up \"{city}\" — please check your connection and try again. ({e})"
+        )
+
+
+def geocode_destinations(
+    city: str,
+    destination_names: list[str],
+    city_lat: float | None = None,
+    city_lng: float | None = None,
+) -> list[dict]:
     """
     Convert a list of destination names into geographic coordinates using
     the Google Maps Places Text Search API. Appends the city name to each
@@ -428,11 +493,17 @@ def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
     The Geocoding API sometimes returns a building centroid or nearby street
     address instead of the landmark pin, placing markers in the wrong location.
 
+    If city_lat/city_lng are provided (from a prior geocode_city() call), they
+    are passed as a locationbias to nudge ambiguous place names (e.g. "Central Park")
+    toward the correct city rather than a same-named place elsewhere.
+
     Inputs:
-        city              (str)       — the city the user is traveling to,
-                                        used to disambiguate place name searches
-        destination_names (list[str]) — plain place names extracted from the
-                                        LLM response, e.g. ["Big Ben", "Tower of London"]
+        city              (str)        — the city the user is traveling to,
+                                         used to disambiguate place name searches
+        destination_names (list[str])  — plain place names extracted from the
+                                         LLM response, e.g. ["Big Ben", "Tower of London"]
+        city_lat          (float|None) — latitude of the city center, for location bias
+        city_lng          (float|None) — longitude of the city center, for location bias
 
     Returns:
         list[dict] — one entry per successfully geocoded destination, in the
@@ -446,6 +517,11 @@ def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
             }
         Destinations that could not be geocoded are skipped with a warning printed.
     """
+    # Build the locationbias string if city coordinates are available.
+    # "circle:50000@lat,lng" biases results within 50km of the city center —
+    # a preference, not a hard filter, so distant but clearly relevant results
+    # (e.g. an airport just outside city limits) can still be returned.
+    location_bias = f"circle:50000@{city_lat},{city_lng}" if city_lat and city_lng else None
 
     def _geocode_one(name: str) -> dict | None:
         """
@@ -465,10 +541,15 @@ def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
         print(f"DEBUG geocoding via Places Text Search: {query!r}", flush=True)
 
         try:
+            # Build params — add locationbias if city coordinates are available
+            params = {"query": query, "key": _api_key()}
+            if location_bias:
+                params["locationbias"] = location_bias
+
             # Places Text Search — designed for named places, returns landmark pins
             response = requests.get(
                 f"{GOOGLE_MAPS_BASE_URL}/place/textsearch/json",
-                params={"query": query, "key": _api_key()},
+                params=params,
                 timeout=10,  # Fail fast — 10 seconds max per request
             )
             response.raise_for_status()  # Raise an error for non-200 HTTP responses

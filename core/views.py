@@ -7,6 +7,7 @@ from django.http import JsonResponse
 from .forms import TripSearchForm
 from .services.places_service import extract_and_normalize_destinations
 from .services.maps_service import (
+    geocode_city,
     geocode_destinations,
     find_hotels_near_destinations,
     rank_hotels_by_walking_distance,
@@ -44,6 +45,9 @@ def home(request):
     recommended = None
     original_description = None
     city = None
+    city_lat = None
+    city_lng = None
+    city_address = None  # formatted address Google returned — shown to user for verification
     error = None
 
     if request.method == 'POST':
@@ -52,10 +56,21 @@ def home(request):
             city = form.cleaned_data['city']
             free_text = form.cleaned_data['destinations']
             try:
+                # Geocode the city first — fail fast if it's gibberish or misspelled,
+                # before spending time on the LLM call
+                city_info = geocode_city(city)
+                city_lat     = city_info["lat"]
+                city_lng     = city_info["lng"]
+                city_address = city_info["address"]
+
+                # City is valid — now run LLM destination extraction
                 result = extract_and_normalize_destinations(city, free_text)
                 named = result.get("named", [])        # list of {name, category, url, alternatives}
                 recommended = result.get("recommended", [])  # same structure
                 original_description = free_text
+            except ValueError as e:
+                # Clean error from geocode_city — show directly to user
+                error = str(e)
             except Exception as e:
                 error = f"Could not process your destinations: {e}"
 
@@ -64,6 +79,9 @@ def home(request):
         'named': named,
         'recommended': recommended,
         'city': city,
+        'city_lat': city_lat,
+        'city_lng': city_lng,
+        'city_address': city_address,  # formatted address Google returned — shown for verification
         'original_description': original_description,
         'error': error,
     })
@@ -97,6 +115,16 @@ def results(request):
     # destination_urls is a parallel list — one URL per destination name (may be empty string)
     destination_urls  = request.POST.getlist('destination_url')
 
+    # City coordinates were geocoded in the home view and passed through as hidden fields —
+    # use them as a location bias for destination geocoding rather than re-geocoding the city
+    try:
+        city_lat = float(request.POST.get('city_lat', ''))
+        city_lng = float(request.POST.get('city_lng', ''))
+    except (ValueError, TypeError):
+        # Coordinates missing or malformed — fall back to no location bias
+        city_lat = None
+        city_lng = None
+
     # Price level filter — integers 1–4 corresponding to $/$$/$$$/$$$$
     # Default to all levels if none submitted (e.g. user left all checked)
     price_level_strs = request.POST.getlist('price_level')
@@ -118,7 +146,8 @@ def results(request):
 
     try:
         # Stage 1: Convert destination names to lat/lng coordinates
-        geocoded = geocode_destinations(city, destination_names)
+        # Pass city coordinates for location bias — nudges ambiguous names toward the right city
+        geocoded = geocode_destinations(city, destination_names, city_lat=city_lat, city_lng=city_lng)
         if not geocoded:
             return render(request, 'core/results.html', {
                 'error': 'Could not geocode any of your destinations. Please check the names and try again.'

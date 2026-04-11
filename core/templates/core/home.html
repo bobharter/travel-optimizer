@@ -45,6 +45,14 @@
         <div class="mt-2">
             <h2 class="h5 mb-3">Here's what we understood — does this look right?</h2>
 
+            {# Show the city Google resolved to so the user can catch typos or wrong cities #}
+            {% if city_address %}
+            <div class="alert alert-info py-2 small mb-3">
+                <strong>City found:</strong> {{ city_address }} &mdash;
+                <a href="/" class="alert-link">not right? Start over</a>
+            </div>
+            {% endif %}
+
             {% if original_description %}
             <div class="mb-3">
                 <a class="text-muted small" data-bs-toggle="collapse" href="#original-description" role="button">
@@ -132,6 +140,9 @@
             <form id="confirm-form" method="post" action="{% url 'results' %}">
                 {% csrf_token %}
                 <input type="hidden" name="city" value="{{ city }}">
+                {# City coordinates from the home view geocode — passed through for location bias #}
+                <input type="hidden" name="city_lat" value="{{ city_lat }}">
+                <input type="hidden" name="city_lng" value="{{ city_lng }}">
 
                 {# Price level filter — $ to $$$$ toggle buttons, all selected by default #}
                 {# Hotels with no price data are always shown regardless of this setting #}
