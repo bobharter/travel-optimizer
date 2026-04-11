@@ -266,6 +266,12 @@ def find_hotels_near_destinations(geocoded_destinations: list[dict]) -> list[dic
                                                                 # it is much more commonly available
                                                                 # for restaurants. Most lodging results
                                                                 # will return None here.
+                                                                # Future enhancement: replace with real
+                                                                # pricing from the Amadeus Hotel Offers
+                                                                # API (amadeus.com), which requires
+                                                                # check-in/check-out dates. Add optional
+                                                                # date fields to the search form and pass
+                                                                # them through to this stage.
             })
 
         print(f"DEBUG found {len(hotels)} hotels near centroid", flush=True)

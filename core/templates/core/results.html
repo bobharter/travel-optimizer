@@ -80,6 +80,11 @@
 
                 {# Quick links to search for this hotel on booking sites #}
                 {# onclick stopPropagation prevents the card click (focusHotel) from firing #}
+                {# Future enhancement: replace these external links with in-app pricing via the  #}
+                {# Amadeus Hotel Offers API (amadeus.com), which returns real room prices.        #}
+                {# Amadeus requires check-in/check-out dates — add optional date fields to the   #}
+                {# search form and pass them through the confirmation step to the results view.   #}
+                {# Dates can remain optional; without them, fall back to these booking links.     #}
                 <div class="mt-1">
                     <a href="https://www.google.com/travel/hotels?q={{ hotel.name|urlencode }}+{{ city|urlencode }}"
                        target="_blank" rel="noopener" class="small me-3"
