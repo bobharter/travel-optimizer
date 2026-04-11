@@ -128,11 +128,33 @@
                 <button class="btn btn-outline-primary" type="button" onclick="addDestination()">Add</button>
             </div>
 
-            {# Hidden form that confirmDestinations() populates and submits to the results view #}
-            {# City and destination names are injected by JS before submission #}
+            {# Confirm form — holds city, price filter, and destination inputs (added by JS) #}
             <form id="confirm-form" method="post" action="{% url 'results' %}">
                 {% csrf_token %}
                 <input type="hidden" name="city" value="{{ city }}">
+
+                {# Price level filter — $ to $$$$ toggle buttons, all selected by default #}
+                {# Hotels with no price data are always shown regardless of this setting #}
+                <div class="mb-3">
+                    <label class="form-label small fw-semibold">Price range</label>
+                    <div>
+                        <div class="btn-group" role="group" aria-label="Price range filter">
+                            <input type="checkbox" class="btn-check" name="price_level" value="1" id="price1" checked>
+                            <label class="btn btn-outline-primary btn-sm" for="price1">$</label>
+
+                            <input type="checkbox" class="btn-check" name="price_level" value="2" id="price2" checked>
+                            <label class="btn btn-outline-primary btn-sm" for="price2">$$</label>
+
+                            <input type="checkbox" class="btn-check" name="price_level" value="3" id="price3" checked>
+                            <label class="btn btn-outline-primary btn-sm" for="price3">$$$</label>
+
+                            <input type="checkbox" class="btn-check" name="price_level" value="4" id="price4" checked>
+                            <label class="btn btn-outline-primary btn-sm" for="price4">$$$$</label>
+                        </div>
+                    </div>
+                    <div class="form-text">Hotels without price data are always included.</div>
+                </div>
+
                 {# Destination inputs are added dynamically by confirmDestinations() #}
             </form>
 

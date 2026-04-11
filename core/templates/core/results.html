@@ -65,13 +65,30 @@
                             <span class="badge bg-warning text-dark ms-1" title="One or more destinations could not be reached on foot">!</span>
                         {% endif %}
                     </div>
-                    {% if hotel.rating %}
-                    <span class="text-warning small fw-semibold">{{ hotel.rating }} ★</span>
-                    {% endif %}
+                    <div class="text-end">
+                        {% if hotel.rating %}
+                        <span class="text-warning small fw-semibold">{{ hotel.rating }} ★</span>
+                        {% endif %}
+                        {% if hotel.price_display %}
+                        <span class="text-success small fw-semibold ms-2">{{ hotel.price_display }}</span>
+                        {% endif %}
+                    </div>
                 </div>
 
                 {# Address and total walking distance summary #}
                 <div class="text-muted small mt-1">{{ hotel.address }}</div>
+
+                {# Quick links to search for this hotel on booking sites #}
+                {# onclick stopPropagation prevents the card click (focusHotel) from firing #}
+                <div class="mt-1">
+                    <a href="https://www.google.com/travel/hotels?q={{ hotel.name|urlencode }}+{{ city|urlencode }}"
+                       target="_blank" rel="noopener" class="small me-3"
+                       onclick="event.stopPropagation()">Google Hotels</a>
+                    <a href="https://www.booking.com/searchresults.html?ss={{ hotel.name|urlencode }}+{{ city|urlencode }}"
+                       target="_blank" rel="noopener" class="small"
+                       onclick="event.stopPropagation()">Booking.com</a>
+                </div>
+
                 <div class="mt-2 small fw-semibold">
                     Total walking: {{ hotel.total_walking_text }}
                 </div>
@@ -134,6 +151,8 @@
         });
 
         // ── Destination markers (blue, lettered A/B/C...) ──
+        // After all markers are placed, spreadOverlappingMarkers() checks for any
+        // that landed on the same spot and fans them out so each is visible and clickable.
         destinationsData.forEach((dest, i) => {
             const label = String.fromCharCode(65 + i); // A, B, C, ...
             const marker = new google.maps.Marker({
@@ -161,6 +180,10 @@
             marker.addListener('click', () => iw.open(map, marker));
             destinationMarkers.push(marker);
         });
+
+        // Spread any destination markers that landed on the same spot so they are
+        // all visible and individually clickable
+        spreadOverlappingMarkers(destinationMarkers);
 
         // ── Hotel markers (red, numbered 1/2/3...) ──
         hotelsData.forEach((hotel, i) => {
@@ -202,6 +225,35 @@
 
             hotelMarkers.push(marker);
             infoWindows.push(iw);
+        });
+    }
+
+    // Detect destination markers that share the same (or nearly the same) position
+    // and fan them out in a small circle so each is visible and individually clickable.
+    // This handles cases where the geocoder returns the same coordinates for two places.
+    // The ~0.0003° offset is roughly 30 metres — noticeable on the map but not misleading.
+    function spreadOverlappingMarkers(markers) {
+        // Group markers by position rounded to 3 decimal places (~100m grid)
+        const groups = {};
+        markers.forEach(marker => {
+            const pos = marker.getPosition();
+            const key = `${pos.lat().toFixed(3)},${pos.lng().toFixed(3)}`;
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(marker);
+        });
+
+        // For each cluster of 2+ overlapping markers, spread them evenly around a small circle
+        Object.values(groups).forEach(group => {
+            if (group.length < 2) return;
+            const center = group[0].getPosition();
+            const offsetDeg = 0.0003; // ~30 metres at mid-latitudes
+            group.forEach((marker, i) => {
+                const angle = (2 * Math.PI * i) / group.length;
+                marker.setPosition({
+                    lat: center.lat() + offsetDeg * Math.cos(angle),
+                    lng: center.lng() + offsetDeg * Math.sin(angle),
+                });
+            });
         });
     }
 

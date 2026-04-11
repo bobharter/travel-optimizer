@@ -253,13 +253,19 @@ def find_hotels_near_destinations(geocoded_destinations: list[dict]) -> list[dic
             # Extract location coordinates from the nested geometry object
             location = place["geometry"]["location"]
             hotels.append({
-                "name"       : place["name"],
-                "address"    : place.get("vicinity", ""),       # vicinity is the street address in Nearby Search
-                "lat"        : location["lat"],
-                "lng"        : location["lng"],
-                "rating"     : place.get("rating"),             # not always present — None if missing
-                "place_id"   : place["place_id"],
-                "place_type" : _format_place_type(place.get("types", [])),  # e.g. "Hotel", "Bed And Breakfast"
+                "name"        : place["name"],
+                "address"     : place.get("vicinity", ""),      # vicinity is the street address in Nearby Search
+                "lat"         : location["lat"],
+                "lng"         : location["lng"],
+                "rating"      : place.get("rating"),            # not always present — None if missing
+                "place_id"    : place["place_id"],
+                "place_type"  : _format_place_type(place.get("types", [])),  # e.g. "Hotel", "Bed And Breakfast"
+                "price_level" : place.get("price_level"),       # int 0–4, or None if not available
+                                                                # Note: price_level is rarely populated
+                                                                # for hotels by Google's Places API —
+                                                                # it is much more commonly available
+                                                                # for restaurants. Most lodging results
+                                                                # will return None here.
             })
 
         print(f"DEBUG found {len(hotels)} hotels near centroid", flush=True)

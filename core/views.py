@@ -97,6 +97,11 @@ def results(request):
     # destination_urls is a parallel list — one URL per destination name (may be empty string)
     destination_urls  = request.POST.getlist('destination_url')
 
+    # Price level filter — integers 1–4 corresponding to $/$$/$$$/$$$$
+    # Default to all levels if none submitted (e.g. user left all checked)
+    price_level_strs = request.POST.getlist('price_level')
+    selected_price_levels = {int(p) for p in price_level_strs} if price_level_strs else {1, 2, 3, 4}
+
     # Validate that we have something to work with before hitting the APIs
     if not city or not destination_names:
         return render(request, 'core/results.html', {
@@ -126,10 +131,26 @@ def results(request):
                 'error': 'No hotels found near your destinations. Try choosing destinations that are closer together.'
             })
 
+        # Apply price level filter — always keep hotels with no price data (None),
+        # since missing price info is common and we don't want to hide good options
+        hotels = [
+            h for h in hotels
+            if h.get('price_level') is None or h.get('price_level') in selected_price_levels
+        ]
+        if not hotels:
+            return render(request, 'core/results.html', {
+                'error': 'No hotels found matching your selected price range. Try selecting more price levels and searching again.'
+            })
+
         # Stage 3: Rank hotels by total walking distance to all destinations
         # Detect units from the geocoded addresses — imperial for US, metric elsewhere
         units = detect_units(geocoded)
         ranked = rank_hotels_by_walking_distance(hotels, geocoded, units=units)
+
+        # Add price_display string to each hotel — "$" × price_level, or None if unknown
+        for hotel in ranked:
+            level = hotel.get('price_level')
+            hotel['price_display'] = '$' * level if level else None
 
         # Add map marker letter labels (A, B, C...) and destination URLs to geocoded results.
         # URLs come from the LLM step and are POSTed alongside the destination names.
