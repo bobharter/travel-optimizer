@@ -418,9 +418,15 @@ def rank_hotels_by_walking_distance(
 def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
     """
     Convert a list of destination names into geographic coordinates using
-    the Google Maps Geocoding API. Appends the city name to each query to
-    disambiguate (e.g. "Colosseum" → "Colosseum, Rome, Italy").
+    the Google Maps Places Text Search API. Appends the city name to each
+    query to disambiguate (e.g. "Colosseum" → "Colosseum, Rome").
     All destinations are geocoded in parallel to minimize total wait time.
+
+    Uses Places Text Search (/place/textsearch/json) rather than the Geocoding
+    API (/geocode/json) because Text Search is designed for named places and
+    returns the same pin coordinates that Google Maps shows for landmarks.
+    The Geocoding API sometimes returns a building centroid or nearby street
+    address instead of the landmark pin, placing markers in the wrong location.
 
     Inputs:
         city              (str)       — the city the user is traveling to,
@@ -443,8 +449,9 @@ def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
 
     def _geocode_one(name: str) -> dict | None:
         """
-        Geocode a single destination name via a direct HTTP call to the
-        Google Maps Geocoding API REST endpoint.
+        Look up a single destination name via the Google Maps Places Text Search
+        API, which returns the same pin coordinates that Google Maps displays for
+        named landmarks — more accurate than the Geocoding API for attractions.
 
         Inputs:
             name (str) — the destination name to look up
@@ -455,13 +462,13 @@ def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
         # Append city to the query so Google disambiguates correctly —
         # "Tower of London" is unambiguous, but "Castle" or "Park" would not be
         query = f"{name}, {city}"
-        print(f"DEBUG geocoding: {query!r}", flush=True)
+        print(f"DEBUG geocoding via Places Text Search: {query!r}", flush=True)
 
         try:
-            # Call the Geocoding API directly — same as the curl command that was fast
+            # Places Text Search — designed for named places, returns landmark pins
             response = requests.get(
-                f"{GOOGLE_MAPS_BASE_URL}/geocode/json",
-                params={"address": query, "key": _api_key()},
+                f"{GOOGLE_MAPS_BASE_URL}/place/textsearch/json",
+                params={"query": query, "key": _api_key()},
                 timeout=10,  # Fail fast — 10 seconds max per request
             )
             response.raise_for_status()  # Raise an error for non-200 HTTP responses
@@ -469,7 +476,7 @@ def geocode_destinations(city: str, destination_names: list[str]) -> list[dict]:
 
             if data["status"] != "OK" or not data["results"]:
                 # Google returned no results or an error status (e.g. ZERO_RESULTS)
-                print(f"WARNING: no geocode result for {query!r} (status: {data['status']}) — skipping", flush=True)
+                print(f"WARNING: no Places Text Search result for {query!r} (status: {data['status']}) — skipping", flush=True)
                 return None
 
             # Take the first (best) result
