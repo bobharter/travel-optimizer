@@ -177,11 +177,12 @@
                 zIndex: 10,  // Keep destinations above hotel markers
             });
 
-            // Info window shows destination name, linked to its official site if available
-            const destContent = dest.url
-                ? `<strong><a href="${dest.url}" target="_blank" rel="noopener">${dest.name}</a></strong>`
-                : `<strong>${dest.name}</strong>`;
-            const iw = new google.maps.InfoWindow({ content: destContent });
+            // headerContent requires a DOM element (not a string) to render HTML
+            const destHeader = document.createElement('div');
+            destHeader.innerHTML = dest.url
+                ? `<a href="${dest.url}" target="_blank" rel="noopener">${dest.name}</a>`
+                : dest.name;
+            const iw = new google.maps.InfoWindow({ headerContent: destHeader });
             marker.addListener('click', () => iw.open(map, marker));
             destinationMarkers.push(marker);
         });
@@ -212,14 +213,12 @@
             const rating = hotel.rating ? `${hotel.rating} ★` : 'No rating';
             // Link hotel name to its Google Maps page using the place_id we already have
             const mapsUrl = `https://www.google.com/maps/place/?q=place_id:${hotel.place_id}`;
+            // headerContent requires a DOM element (not a string) to render HTML
+            const hotelHeader = document.createElement('div');
+            hotelHeader.innerHTML = `#${hotel.rank} <a href="${mapsUrl}" target="_blank" rel="noopener">${hotel.name}</a>`;
             const iw = new google.maps.InfoWindow({
-                content: `
-                    <div style="min-width:160px">
-                        <strong>#${hotel.rank} <a href="${mapsUrl}" target="_blank" rel="noopener">${hotel.name}</a></strong><br>
-                        <span style="color:#888">${rating}</span><br>
-                        <span>Total walking: ${hotel.total_walking_text}</span>
-                    </div>
-                `
+                headerContent: hotelHeader,
+                content: `<div style="min-width:160px"><span style="color:#888">${rating}</span><br>Total walking: ${hotel.total_walking_text}</div>`
             });
 
             // Close all other info windows when this one opens — keeps the map tidy
