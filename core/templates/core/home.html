@@ -200,7 +200,11 @@
                         <div class="alert alert-info mb-0 rounded-0 small px-3 py-2">
                             Click any place on the map to add it to your destinations list. Click it again to remove it.
                         </div>
-                        <div id="picker-map" style="height: 70vh; width: 100%;"></div>
+                        <div class="p-2 border-bottom">
+                            <input id="picker-search" type="text" class="form-control form-control-sm"
+                                   placeholder='Search for a place, e.g. "harbor cruises"...'>
+                        </div>
+                        <div id="picker-map" style="height: 65vh; width: 100%;"></div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
@@ -366,6 +370,31 @@
                     clickableIcons: true,
                 });
                 pickerMap.addListener('click', handleMapClick);
+
+                // Wire up the search box — biases results toward the visible map area
+                const searchInput = document.getElementById('picker-search');
+                const searchBox = new google.maps.places.SearchBox(searchInput);
+                pickerMap.addListener('bounds_changed', () => {
+                    searchBox.setBounds(pickerMap.getBounds());
+                });
+
+                // When the user selects a search result, pick it as a destination
+                searchBox.addListener('places_changed', () => {
+                    const places = searchBox.getPlaces();
+                    if (!places || places.length === 0) return;
+                    const place = places[0];
+                    if (!place.geometry || !place.geometry.location) return;
+
+                    const placeId = place.place_id || place.name;
+                    if (!pickedPlaceIds.has(placeId)) {
+                        pickPlace(placeId, place.name, place.types || [], place.geometry.location);
+                    }
+
+                    // Pan to the result and clear the search input
+                    pickerMap.panTo(place.geometry.location);
+                    pickerMap.setZoom(15);
+                    searchInput.value = '';
+                });
             } else {
                 // Subsequent opens — just re-fit the map to the (possibly resized) container
                 google.maps.event.trigger(pickerMap, 'resize');
