@@ -136,6 +136,17 @@
                 <button class="btn btn-outline-primary" type="button" onclick="addDestination()">Add</button>
             </div>
 
+            {# Map picker button — only shown when we have city coordinates to center the map #}
+            {% if city_lat and city_lng %}
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <button type="button" class="btn btn-outline-secondary btn-sm"
+                        data-bs-toggle="modal" data-bs-target="#mapPickerModal">
+                    <i class="bi bi-geo-alt me-1"></i>Pick from map
+                </button>
+                <span class="text-muted small">For activities like cruises or tours, pick the departure point directly on the map.</span>
+            </div>
+            {% endif %}
+
             {# Confirm form — holds city, price filter, and destination inputs (added by JS) #}
             <form id="confirm-form" method="post" action="{% url 'results' %}">
                 {% csrf_token %}
@@ -174,6 +185,33 @@
                 <i class="bi bi-check-circle me-2"></i>Confirm. Find my hotel location!
             </button>
         </div>
+
+        {% if city_lat and city_lng %}
+        <div class="modal fade" id="mapPickerModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="bi bi-geo-alt me-2"></i>Pick destinations from the map
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-0">
+                        <div class="alert alert-info mb-0 rounded-0 small px-3 py-2">
+                            Click any place on the map to add it to your destinations list. Click it again to remove it.
+                        </div>
+                        <div id="picker-map" style="height: 70vh; width: 100%;"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script async defer
+            src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places">
+        </script>
+        {% endif %}
 
         {% endif %}
 
@@ -300,6 +338,135 @@
 
         input.value = '';
         input.focus();
+        updateConfirmButton();
+    }
+
+    // ---- Map picker -------------------------------------------------------
+
+    // Module-scope state for the map picker modal
+    let pickerMap = null;
+    const pickedPlaceIds = new Set();      // tracks which POIs are currently picked (for toggle + dedup)
+    const pickedOverlayMarkers = {};       // placeId → google.maps.Marker (green circle overlay)
+
+    // City coordinates injected by Django — used to center the picker map on the right city
+    const pickerCityLat = parseFloat("{{ city_lat|default:'0' }}");
+    const pickerCityLng = parseFloat("{{ city_lng|default:'0' }}");
+
+    // Initialize the map lazily on first modal open so the map div is already visible
+    // and has real dimensions — avoids the grey-tile problem that happens when Google Maps
+    // initializes inside a hidden Bootstrap modal (display:none → computed height 0).
+    const modalEl = document.getElementById('mapPickerModal');
+    if (modalEl) {
+        modalEl.addEventListener('shown.bs.modal', function onModalShown() {
+            if (!pickerMap) {
+                // First open — build the map now that the container is visible
+                pickerMap = new google.maps.Map(document.getElementById('picker-map'), {
+                    center: { lat: pickerCityLat, lng: pickerCityLng },
+                    zoom: 14,
+                    clickableIcons: true,
+                });
+                pickerMap.addListener('click', handleMapClick);
+            } else {
+                // Subsequent opens — just re-fit the map to the (possibly resized) container
+                google.maps.event.trigger(pickerMap, 'resize');
+                pickerMap.setCenter({ lat: pickerCityLat, lng: pickerCityLng });
+            }
+        });
+    }
+
+    // Handles a click anywhere on the picker map.
+    // Ignores clicks on blank map (no placeId), suppresses Google's default POI infowindow,
+    // then either picks or unpicks the POI depending on current state.
+    function handleMapClick(e) {
+        if (!e.placeId) return;   // blank map click — nothing to do
+        e.stop();                 // suppress Google's default POI popup so we own the UX
+
+        const placeId = e.placeId;
+        if (pickedPlaceIds.has(placeId)) {
+            unpickPlace(placeId);
+            return;
+        }
+
+        // Fetch name + types via Places service — the click event gives us placeId and latLng
+        // but not the human-readable name
+        const svc = new google.maps.places.PlacesService(pickerMap);
+        svc.getDetails(
+            { placeId: placeId, fields: ['name', 'types'] },
+            (place, status) => {
+                if (status !== google.maps.places.PlacesServiceStatus.OK) return;
+                pickPlace(placeId, place.name, place.types || [], e.latLng);
+            }
+        );
+    }
+
+    // Marks a POI as picked: draws a green overlay marker so the user can see their selection,
+    // and appends a checked list item to the Named Destinations list.
+    function pickPlace(placeId, name, types, latLng) {
+        pickedPlaceIds.add(placeId);
+
+        // Green circle drawn on top of the POI tile — Google won't let us recolor the
+        // underlying POI icon, so we overlay our own marker instead
+        pickedOverlayMarkers[placeId] = new google.maps.Marker({
+            position: latLng,
+            map: pickerMap,
+            icon: {
+                path: google.maps.SymbolPath.CIRCLE,
+                fillColor: '#198754',   // Bootstrap success green
+                fillOpacity: 1,
+                strokeColor: 'white',
+                strokeWeight: 3,
+                scale: 12,
+            },
+            zIndex: 1000,
+            clickable: false,   // pass clicks through to the POI tile underneath so toggle works
+        });
+
+        addDestinationFromMap(name, formatPlaceType(types), placeId);
+    }
+
+    // Removes a previously picked POI: deletes the green overlay and the corresponding list item.
+    function unpickPlace(placeId) {
+        pickedPlaceIds.delete(placeId);
+
+        if (pickedOverlayMarkers[placeId]) {
+            pickedOverlayMarkers[placeId].setMap(null);
+            delete pickedOverlayMarkers[placeId];
+        }
+
+        const li = document.querySelector(`li[data-place-id="${placeId}"]`);
+        if (li) li.remove();
+        updateConfirmButton();
+    }
+
+    // JS mirror of _format_place_type() in maps_service.py.
+    // Skips generic catch-all types and returns the first specific type, title-cased.
+    // NOTE: keep PICKER_GENERIC_TYPES in sync with _GENERIC_PLACE_TYPES in maps_service.py.
+    const PICKER_GENERIC_TYPES = new Set(['lodging', 'point_of_interest', 'establishment', 'food', 'store']);
+    function formatPlaceType(types) {
+        for (const t of types) {
+            if (!PICKER_GENERIC_TYPES.has(t)) {
+                return t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            }
+        }
+        return 'Place';
+    }
+
+    // Appends a map-picked destination to the Named Destinations list.
+    // Like addDestination() but takes pre-resolved args and stamps data-place-id so that
+    // unpickPlace() can find and remove the item if the user clicks the POI again.
+    function addDestinationFromMap(name, category, placeId) {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex align-items-center';
+        li.setAttribute('data-name', name);
+        li.setAttribute('data-url', '');   // no LLM URL for map-picked destinations
+        li.setAttribute('data-place-id', placeId);
+        li.innerHTML = `
+            <input class="form-check-input me-2 destination-checkbox" type="checkbox" checked onchange="updateConfirmButton()">
+            <span>${name} <span class="text-muted small">(${category})</span></span>
+        `;
+
+        const list = document.getElementById('named-list') || document.getElementById('recommended-list');
+        list.appendChild(li);
         updateConfirmButton();
     }
 </script>

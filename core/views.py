@@ -84,6 +84,7 @@ def home(request):
         'city_address': city_address,  # formatted address Google returned — shown for verification
         'original_description': original_description,
         'error': error,
+        'google_maps_api_key': os.environ.get('GOOGLE_MAPS_API_KEY', ''),
     })
 
 

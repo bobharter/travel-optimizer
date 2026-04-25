@@ -154,7 +154,8 @@ def detect_units(geocoded_destinations: list[dict]) -> str:
 
 
 # Place types returned by the Places API that are too generic to display —
-# we skip these and show the first more-specific type instead
+# we skip these and show the first more-specific type instead.
+# NOTE: mirrored as PICKER_GENERIC_TYPES in home.html — keep both sets in sync.
 _GENERIC_PLACE_TYPES = {"lodging", "point_of_interest", "establishment", "food", "store"}
 
 
