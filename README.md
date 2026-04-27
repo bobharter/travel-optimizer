@@ -57,3 +57,49 @@ I want to visit the best art galleries, eat the best dessert crepe, and for sur 
   2. Extract all named places, fix typos                                        
   3. For category intents, pick a well-known specific instance near one of the named destinations                                                            
   4. Return a structured list of concrete place names 
+
+
+### Status as of 4-25-26 at 3pm (and Claude has this in its memory)
+
+ What's built and working
+                          
+  - Free-text → LLM destination extraction (named + recommended, with alternatives dropdowns)
+  - City validation before LLM call; city verification display on confirmation page                                                                           
+  - Full 3-stage Maps pipeline: geocode destinations → find hotels → rank by walking distance                                                                 
+  - Results page: ranked hotel list + interactive map, A/B/C markers, per-destination breakdown                                                               
+  - Google Hotels + Booking.com links on each hotel card                                                                                                      
+  - Price range filter (limited effect — Google rarely returns price data for hotels)                                                                         
+  - Imperial/metric units based on destination country                                                                                                        
+  - Map picker modal (just built): POI clicks + search box, green overlay markers, lazy init                                                                  
+                                                                                                                                                              
+  ---                                                                                                                                                         
+  Three items identified this session (ready to code)                                                                                                         
+                                                                                                                                                              
+  1. Links for manually-added/map-picked destinations (easy) — these currently show as plain text in the results legend because data-url is empty; fix by  generating a Google search URL in JS when adding them                                                                                                       
+  2. Add destinations on results page (moderate) — "Add destination" input re-POSTs to /results/ with all current destinations + the new one; needs  city_lat/city_lng passed through to the results template                                                                                                    
+  3. Booking.com shows Euros (easy) — add &selected_currency=USD to the Booking.com URL for US trips; pass units to the results template context
+                                                                                                                                                              
+  ---             
+  Longer-term roadmap                                                                                                                                         
+                     
+  - Geocoding failure warnings on results page
+  - Vacation rental filtering (switch "lodging" → "hotel" in Places API — confirm with colleague)                                                             
+  - Real pricing via Amadeus Hotel Offers API (requires check-in/check-out dates) — wife strongly wants prices                                                
+  - Outlier detection for bad geocodes (e.g. "Seine River" geocoding 775km from Paris)                                                                        
+  - LLM prompt improvement: append city name to geographic features (rivers, parks, lakes)                                                                    
+  - Docker deployment                                                                                                                                         
+  - Split-pane home page (map + free-text side by side from the start — mobile layout needs separate design)                                                  
+  - Map mode on results page (live re-ranking as user adds destinations)                                                                                      
+                                                                                                                                                              
+  ---                                                                                                                                                         
+  Known limitations                                                                                                                                           
+                   
+  - Google rarely returns price_level for hotels — price filter mostly ineffective
+  - LLM may hallucinate destinations — confirmation page is the safeguard                                                                                     
+  - Activity-based inputs ("take a cruise") don't geocode well — users guided to map picker instead                                                           
+                                                                                                                                                              
+✻ Sautéed for 38s                                                                                                                                             
+                                                                                                                                                              
+※ recap: Building a hotel optimizer app that ranks hotels by walking distance to your destinations. Map picker modal is done and committed; next up is fixing 
+  destination links, adding destinations from the results page, and correcting Booking.com currency.                                                          
+          
